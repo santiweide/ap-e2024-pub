@@ -1,0 +1,1 @@
+cabal test --enable-coverage
