@@ -31,7 +31,7 @@ data Exp
 data Val
     = ValInt Integer
     | ValBool Bool
-    | ValFun Env VName Exp -- here we could have a exp in a Val <3~~~
+    | ValFun Env VName Exp
   deriving (Eq, Show)
 
 -- data Either a b = Left a

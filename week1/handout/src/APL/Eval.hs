@@ -98,8 +98,7 @@ eval env (Let k e1 e2) =
         Left err -> Left err          
         Right v -> eval (envExtend k v env) e2
 
--- Lambda stores the unknow variable name int env
--- and then when called it will assign
+-- Lambda captures the env in ValFun
 eval env (Lambda k e) =  Right (ValFun env k e) 
 
 -- e1 The function expression must evaluate to a ValFun.
