@@ -108,8 +108,8 @@ eval env (Apply e1 e2) =
 eval env (TryCatch e1 e2) = 
     case (eval env e1) of
         Right val -> Right val
-        Left _ -> case (eval env e2) of
+        Left err1 -> case (eval env e2) of
             Right val -> Right val
-            Left err -> Left err
+            Left err -> Left ("error occurs:" ++ err ++ " while executing " ++ err1)
 
 

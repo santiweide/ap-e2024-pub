@@ -121,10 +121,14 @@ tests =
         testCase "Apply(Function is not evaled to be a ValFun)" $
           eval envEmpty (Apply (CstBool True) (Let "x" (CstBool True)  (Lambda "y" (Eql (Var "x") (Var "y")))))
             @?= Left "the first expression must evaluate to a ValFun." ,
+        --   
+        testCase "Apply(order)" $
+            eval [("y",ValInt 10)] (Apply (Lambda "y" (Add (CstInt 0) (Var "y"))) (Let "y" (CstInt 2) (Lambda "y" (Add (Var "x") (Var "y")))) )
+            @?=  Right (ValInt 10) ,
         -- 
         testCase "Apply(Error)" $
-          eval envEmpty (Apply (Let "x" (Div (CstInt 7) (CstInt 0)) (Var "x")) (CstInt 3))
-            @?= Left "Division by zero",
+          eval envEmpty (Apply (Let "x" (If (CstInt 1) (CstInt 2) (CstInt 3)) (CstInt 1))  (CstInt 3))
+            @?= Left "Non-boolean conditional.",
         -- 
         testCase "TryCatch(noerr)" $
           eval envEmpty (TryCatch (CstInt 0) (CstInt 1))
@@ -132,6 +136,10 @@ tests =
         -- 
         testCase "TryCatch(err)" $
           eval envEmpty (TryCatch (Var "missing") (CstInt 1))
-            @?= Right (ValInt 1) 
+            @?= Right (ValInt 1) ,
+        -- 
+        testCase "TryCatch(double err)" $
+          eval envEmpty (TryCatch (Var "missing") (Eql (CstInt 0) (CstBool True)))
+            @?= Left "error occurs:Invalid operands to equality while executing Unknown variable: missing"
         -- 
     ]
