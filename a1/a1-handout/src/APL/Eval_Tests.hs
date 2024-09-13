@@ -94,22 +94,10 @@ tests =
           --
           -- TODO - add more
         -- 
-        testCase "Apply(Argument is Lambda; calculatable int)" $
+        testCase "Apply(Argument is Lambda)" $
           eval [("y",ValInt 2)] (Apply (Lambda "y" (Add (Var "x") (Var "y"))) (Let "x" (CstInt 2) (Lambda "y" (Add (Var "x") (Var "y")))) )
-            @?= Right (ValInt 4) ,
-        --  
-        testCase "Apply(Argument is Lambda; calculatable bool)" $
-          eval [("y",ValBool True)] (Apply (Lambda "y" (Eql (Var "x") (Var "y"))) (Let "x" (CstBool True) (Lambda "y" (Eql (Var "x") (Var "y")))) )
-            @?= Right (ValBool True) ,
+            @?= Left "Unknown variable: x",
         --    
-        testCase "Apply(Argument is Lambda; ValFun in env)" $
-          eval [("y",ValFun [] "y" (CstInt 3))] (Apply (Lambda "y" (Eql (Var "x") (Var "y"))) (Let "x" (CstBool True) (Lambda "y" (Eql (Var "x") (Var "y")))) )
-            @?= Right (ValFun [("y",ValFun [] "y" (CstInt 3)),("x",ValBool True)] "y" (Eql (Var "x") (Var "y"))) ,
-        --    
-        testCase "Apply(Argument is Lambda, uncalculatable)" $
-          eval envEmpty (Apply (Lambda "y" (Add (Var "x") (Var "y"))) (Let "x" (CstInt 2) (Lambda "y" (Add (Var "x") (Var "y")))) )
-            @?= Right (ValFun [("x",ValInt 2)] "y" (Add (Var "x") (Var "y")))  ,
-        -- 
         testCase "Apply(Argument is Int)" $
           eval envEmpty (Apply (Let "x" (CstInt 2)  (Lambda "y" (Add (Var "x") (Var "y")))) (CstInt 3)) 
             @?= Right (ValInt 5) ,
@@ -124,7 +112,7 @@ tests =
         --   
         testCase "Apply(order)" $
             eval [("y",ValInt 10)] (Apply (Lambda "y" (Add (CstInt 0) (Var "y"))) (Let "y" (CstInt 2) (Lambda "y" (Add (Var "x") (Var "y")))) )
-            @?=  Right (ValInt 10) ,
+            @?=   Left "Non-integer operand" ,
         -- 
         testCase "Apply(Error)" $
           eval envEmpty (Apply (Let "x" (If (CstInt 1) (CstInt 2) (CstInt 3)) (CstInt 1))  (CstInt 3))

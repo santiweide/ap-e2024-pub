@@ -1,8 +1,13 @@
 module APL.Eval
   ( Val (..),
+    Env,
     eval,
     runEval,
     Error,
+    failure,
+    EvalM,
+    localEnv,
+    askEnv
   )
 where
 
@@ -28,6 +33,9 @@ envLookup v env = lookup v env
 
 type Error = String
 
+-- what is Eval:  it is a data structure defining the return value, which could either be a val or a error returning
+-- what is EvalM: it is a wrapper for any functions with input env and output of either error or a
+-- 小声逼逼 haskell is wraping evering thing:P 
 newtype EvalM a = EvalM (Env -> Either Error a)
 
 instance Functor EvalM where
@@ -37,6 +45,8 @@ instance Applicative EvalM where
   pure x = EvalM $ \_env -> Right x
   (<*>) = ap
 
+-- Monad 的好处就是包裹的一部分错误处理，这样如果是EvalM内的错误，就可以只写一遍啦
+-- 相当于是函数调用的时候中间出现的错误统一处理的框架
 instance Monad EvalM where
   EvalM x >>= f = EvalM $ \env ->
     case x env of
@@ -60,8 +70,8 @@ catch (EvalM m1) (EvalM m2) = EvalM $ \env ->
     Left _ -> m2 env
     Right x -> Right x
 
-runEval :: EvalM a -> ([String], Either Error a)
-runEval (EvalM m) = ([], m envEmpty)
+runEval :: EvalM a -> Either Error a
+runEval (EvalM m) = m envEmpty
 
 evalIntBinOp :: (Integer -> Integer -> EvalM Integer) -> Exp -> Exp -> EvalM Val
 evalIntBinOp f e1 e2 = do
@@ -98,6 +108,7 @@ eval (Pow e1 e2) = evalIntBinOp checkedPow e1 e2
       if y < 0
         then failure "Negative exponent"
         else pure $ x ^ y
+-- question: what if eval e1 returns a Left err, will it be caught in this case?
 eval (Eql e1 e2) = do
   v1 <- eval e1
   v2 <- eval e2
@@ -105,6 +116,7 @@ eval (Eql e1 e2) = do
     (ValInt x, ValInt y) -> pure $ ValBool $ x == y
     (ValBool x, ValBool y) -> pure $ ValBool $ x == y
     (_, _) -> failure "Invalid operands to equality"
+
 eval (If cond e1 e2) = do
   cond' <- eval cond
   case cond' of
@@ -127,4 +139,3 @@ eval (Apply e1 e2) = do
       failure "Cannot apply non-function"
 eval (TryCatch e1 e2) =
   eval e1 `catch` eval e2
-

@@ -25,9 +25,6 @@ envExtend v val env = (v, val) : env
 envLookup :: VName -> Env -> Maybe Val
 envLookup v env = lookup v env
 
-envMerge :: Env -> Env -> Env
-envMerge e1 e2 = e1 ++ filter (\(k, _) -> k `notElem` map fst e1) e2
-
 type Error = String
 
 evalIntBinOp :: (Integer -> Integer -> Either Error Integer) -> Env -> Exp -> Exp -> Either Error Val
@@ -95,14 +92,7 @@ eval env (Apply e1 e2) =
     case (eval env e1, eval env e2) of
         (Left err, _) -> Left err 
         (_, Left err) -> Left err
-        (Right (ValFun env1 k exp1), Right (ValInt y)) -> eval (envMerge env env1) (Let k (CstInt y) exp1)
-        (Right (ValFun env1 k exp1), Right (ValBool y)) -> eval (envMerge env env1) (Let k (CstBool y) exp1)     
-        (Right (ValFun env1 k exp1), Right (ValFun env2 _ _)) ->
-            case envLookup k (envMerge (envMerge env env1) env2) of
-                Nothing  -> Right (ValFun (envMerge (envMerge env env1) env2) k exp1) 
-                Just (ValInt x) -> eval (envMerge (envMerge env env1) env2) (Let k (CstInt x) exp1)
-                Just (ValBool x) -> eval (envMerge (envMerge env env1) env2) (Let k (CstBool x) exp1)
-                Just (ValFun _ _ _) -> Right (ValFun (envMerge (envMerge env env1) env2) k exp1) -- a func cannot apply to a func :P, so just leave it there
+        (Right (ValFun env1 k body), Right v1) -> eval (envExtend k v1 env1) body
         (_, _) -> Left "the first expression must evaluate to a ValFun."
 
 eval env (TryCatch e1 e2) = 
