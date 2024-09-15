@@ -7,7 +7,7 @@ module APL.Eval
 where
 
 import APL.AST (Exp (..), VName)
-import Control.Monad (ap, liftM)
+-- import Control.Monad (ap, liftM)
 
 data Val
   = ValInt Integer
@@ -27,69 +27,81 @@ envLookup :: VName -> Env -> Maybe Val
 envLookup v env = lookup v env
 
 type Error = String
+type State =( [String], [(Val, Val)] ) 
 
 
--- [String] is user controlled String
-newtype EvalM a = EvalM (Env -> ([String], Either Error a))
--- question1 what if 
---      newtype EvalM a String = EvalM (Env -> ([String], Either Error a))
+mergeLists :: [(Val, Val)] -> [(Val, Val)] -> [(Val, Val)]
+mergeLists list1 list2 =
+    let filteredList1 = filter (\(k1, _) -> notElem k1 (map fst list2)) list1
+    in list2 ++ filteredList1
+
+mergeState :: State -> State -> State
+mergeState (x, kv1) (y, kv2) = (x++y, kv)
+        where kv = mergeLists kv1 kv2
+
+merge3 :: State -> State -> State -> State
+merge3 a b c = mergeState (mergeState a b) c
+
+newtype EvalM a = EvalM (Env -> State -> (State, Either Error a))
 
 instance Functor EvalM where
   -- fmap :: (a -> b) -> EvalM a -> EvalM b
-  fmap f (EvalM t) = EvalM $ \env ->
-        let (log, x) = t env
+  fmap f (EvalM t) = EvalM $ \env state ->
+        let (state1, x) = t env state
+            state2 = mergeState state state1
         in case x of
-            Left err -> (log, Left err)
-            Right y -> (log, Right (f y))
+            Left err -> (state2, Left err)
+            Right y -> (state2, Right (f y))
 
             
 instance Applicative EvalM where
-  pure x = EvalM $ \_env -> ([], Right x)
-  
+  pure x = EvalM $ \_env _ -> (([], []), Right x)
   -- <*> :: EvalM (a -> b) -> EvalM a -> EvalM b
-  (EvalM f) <*> (EvalM v) = EvalM $ \env ->
-    let (log1, ff) = f env
-        (log2, vv) = v env
+  (EvalM f) <*> (EvalM v) = EvalM $ \env state ->
+    let (state1, ff) = f env state
+        (state2, vv) = v env state
+        state4 = merge3 state state1 state2
     in case ff of
-         Left err   -> (log1 ++ log2, Left err)
+         Left err   -> (state4, Left err)
          Right func -> case vv of
-                         Left err -> (log1 ++ log2, Left err)
-                         Right val -> (log1 ++ log2, Right (func val))
+                         Left err -> (state4, Left err)
+                         Right val -> (state4, Right (func val))
 
 
 instance Monad EvalM where
   -- >>= :: EvalM a -> (a -> EvalM b) -> EvalM b
-  EvalM x >>= f = EvalM $ \env ->
-    let (log1, xx) = x env
-    in case xx of
-         Left err -> (log1, Left err)
+  EvalM x >>= f = EvalM $ \env state ->
+    let (state1, res) = x env state
+        state2 = mergeState state state1
+    in case res of
+         Left err -> (state2, Left err)
          Right val ->
-           let EvalM f' = f val
-               (log2, y) = f' env
-           in (log1 ++ log2, y)
+           let EvalM f' = f val 
+               (state3, y) = f' env state2
+               state4 = mergeState state2 state3
+           in (state4, y)
 
 
 -- The function evalPrint adds a string to the list of printed strings. Use this to implement the eval case for Print.
 
 askEnv :: EvalM Env
-askEnv = EvalM $ \env -> ([], Right env)
+askEnv = EvalM $ \env state -> (state, Right env)
 
 localEnv :: (Env -> Env) -> EvalM a -> EvalM a
-localEnv f (EvalM m) = EvalM $ \env -> m (f env)
+localEnv f (EvalM m) = EvalM $ \env state -> m (f env) state
 
--- question: how to have the current [String] in the EvalM a?
--- or we have just no need for that
 failure :: String -> EvalM a
-failure s = EvalM $ \_env -> ([], Left s)
+failure s = EvalM $ \_env state -> (state, Left s)
 
 catch :: EvalM a -> EvalM a -> EvalM a
-catch (EvalM m1) (EvalM m2) = EvalM $ \env ->
-  case m1 env of
-    (log, Left _) -> m2 env
-    (log, Right x) -> (log, Right x)
+catch (EvalM m1) (EvalM m2) = EvalM $ \env state ->
+  case m1 env state of
+    (state1, Left _) -> m2 env (mergeState state state1)
+    (state1, Right x) -> ((mergeState state state1), Right x)
 
-runEval :: EvalM a -> ([String], Either Error a)
-runEval (EvalM m) = m envEmpty
+runEval :: EvalM a -> (State, Either Error a)
+runEval (EvalM m) = m envEmpty ([],[])
+
 
 evalIntBinOp :: (Integer -> Integer -> EvalM Integer) -> Exp -> Exp -> EvalM Val
 evalIntBinOp f e1 e2 = do
@@ -106,20 +118,50 @@ evalIntBinOp' f e1 e2 =
     f' x y = pure $ f x y
 
 evalPrint :: String -> EvalM ()
-evalPrint msg = EvalM $ \env -> ([msg], Right ())
+evalPrint msg = EvalM $ \_ state -> (((fst state) ++ [msg], snd state), Right ())
 
 showVal :: Val -> String
 showVal val = case val of
     (ValInt x) -> show x
     (ValBool x) -> show x
-    (ValFun env varname x) -> "#<func>"
+    (ValFun _ _ _) -> "#<func>"
+
+showTypeVal :: Val -> String
+showTypeVal val = case val of
+    (ValInt x) -> "ValInt " ++ show x
+    (ValBool x) -> "ValBool " ++ show x
+    (ValFun _ _ _) -> "ValFun #<func>"
+
+evalKvGet :: Val -> EvalM Val
+evalKvGet key = EvalM $ \_ state ->
+    let kvs = snd state
+    in case lookup key kvs of
+        Just val -> (state, Right val)
+        Nothing -> (state, Left ("Invalid key: " ++ (showTypeVal key)))
+
+evalKvPut :: Val -> Val -> EvalM ()
+evalKvPut key val = EvalM $ \_ state -> 
+    let kvs = snd state
+        newKvs = (key, val) : filter (\(k, _) -> k /= key) kvs
+        logs = fst state
+    in ((logs, newKvs), Right ())
 
 eval :: Exp -> EvalM Val
-eval (Print str exp) = do
-    val <- eval exp
+eval (Print str e) = do
+    val <- eval e
     evalPrint (str ++ ": " ++ (showVal val))
     pure $ val
-            
+
+eval (KvPut key value) = do
+    k <- eval key
+    v <- eval value
+    evalKvPut k v
+    pure $ v
+
+eval (KvGet key) = do
+    k <- eval key
+    evalKvGet k
+
 eval (CstInt x) = pure $ ValInt x
 eval (CstBool b) = pure $ ValBool b
 eval (Var v) = do
@@ -169,6 +211,5 @@ eval (Apply e1 e2) = do
       failure "Cannot apply non-function"
 eval (TryCatch e1 e2) =
   eval e1 `catch` eval e2
-
 
 
