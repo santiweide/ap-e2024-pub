@@ -3,6 +3,7 @@ module APL.Eval
     eval,
     runEval,
     Error,
+    isEql
   )
 where
 
@@ -36,7 +37,7 @@ mergeLists list1 list2 =
     in list2 ++ filteredList1
 
 mergeState :: State -> State -> State
-mergeState (x, kv1) (y, kv2) = (x++y, kv)
+mergeState (_, kv1) (y, kv2) = (y, kv)
         where kv = mergeLists kv1 kv2
 
 merge3 :: State -> State -> State -> State
@@ -55,7 +56,7 @@ instance Functor EvalM where
 
             
 instance Applicative EvalM where
-  pure x = EvalM $ \_env _ -> (([], []), Right x)
+  pure x = EvalM $ \_env state -> (state, Right x)
   -- <*> :: EvalM (a -> b) -> EvalM a -> EvalM b
   (EvalM f) <*> (EvalM v) = EvalM $ \env state ->
     let (state1, ff) = f env state
@@ -212,4 +213,12 @@ eval (Apply e1 e2) = do
 eval (TryCatch e1 e2) =
   eval e1 `catch` eval e2
 
+
+isEql :: EvalM Val -> EvalM Val -> EvalM Val
+isEql evalM1 evalM2 = pure isEqlFunc <*> evalM1 <*> evalM2
+  where
+    isEqlFunc :: Val -> Val -> Val
+    isEqlFunc (ValInt x) (ValInt y) = ValBool (x == y)
+    isEqlFunc (ValBool x) (ValBool y) = ValBool (x == y)
+    isEqlFunc _ _ = error "Invalid datatype for isEql"
 
