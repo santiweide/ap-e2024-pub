@@ -220,5 +220,5 @@ isEql evalM1 evalM2 = pure isEqlFunc <*> evalM1 <*> evalM2
     isEqlFunc :: Val -> Val -> Val
     isEqlFunc (ValInt x) (ValInt y) = ValBool (x == y)
     isEqlFunc (ValBool x) (ValBool y) = ValBool (x == y)
-    isEqlFunc _ _ = error "Invalid datatype for isEql"
+    isEqlFunc _ _ = ValBool False
 
