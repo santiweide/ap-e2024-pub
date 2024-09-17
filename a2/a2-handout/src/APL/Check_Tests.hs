@@ -30,7 +30,10 @@ tests =
         testPos (Apply (Lambda "x" (Var "x")) (CstInt 2)),
         testNeg (Apply (Lambda "x" (Var "y")) (CstInt 2)),
         testNeg (Print "Output:" (Var "y")),
-        testNeg (TryCatch (Var "x") (CstInt 0))
+        testNeg (TryCatch (Var "x") (CstInt 0)),
+        testCase "checkExp" $ 
+          checkExp (If (Add (CstInt 1) (CstInt 2)) (Pow (CstInt 1) (CstInt 2)) (Div (CstInt 2) (Var "x")))
+          @?= Just "Variable not in scope."
         
     ]
 

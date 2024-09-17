@@ -83,7 +83,11 @@ evalTests =
       --
       testCase "TryCatch(e1-effect-visible)" $
         runEval (eval (TryCatch (Let "x" (CstInt 10) (KvPut (CstInt 0) (CstInt 1))) (KvGet (CstInt 0)) ))
-          @?= runEval (eval (TryCatch (Let "x" (CstInt 10) (KvPut (CstInt 0) (CstInt 1))) (KvGet (CstInt 0)) )),
+          @?= (([],[(ValInt 0,ValInt 1)]),Right (ValInt 1)),
+      --
+      testCase "TryCatch(e1-effect-env-invisible)" $
+        runEval (eval (TryCatch ( Let "x" (Div (CstInt 2) (CstInt 1)) (Let "y" (CstBool True) (Div (CstInt 2) (CstInt 0))) ) (Var "x")))
+          @?= (([],[]),Left "Unknown variable: x"),
       --
       testCase "Print" $
         runEval (eval (Let "x" (Print "foo" $ CstInt 2)  (Print "bar" $ CstInt 3)))
