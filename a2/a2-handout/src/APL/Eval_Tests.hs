@@ -83,35 +83,35 @@ evalTests =
       --
       testCase "TryCatch(e1-effect-visible)" $
         runEval (eval (TryCatch (Let "x" (CstInt 10) (KvPut (CstInt 0) (CstInt 1))) (KvGet (CstInt 0)) ))
-          @?= (([],[(ValInt 0,ValInt 1)]),Right (ValInt 1)),
+          @?= ([],Right (ValInt 1)),
       --
       testCase "TryCatch(e1-effect-env-invisible)" $
         runEval (eval (TryCatch ( Let "x" (Div (CstInt 2) (CstInt 1)) (Let "y" (CstBool True) (Div (CstInt 2) (CstInt 0))) ) (Var "x")))
-          @?= (([],[]),Left "Unknown variable: x"),
+          @?= ([],Left "Unknown variable: x"),
       --
       testCase "Print" $
         runEval (eval (Let "x" (Print "foo" $ CstInt 2)  (Print "bar" $ CstInt 3)))
-        @?= ((["foo: 2","bar: 3"],[]),Right (ValInt 3)),
+        @?= (["foo: 2","bar: 3"],Right (ValInt 3)),
       --
       testCase "Print(error)" $
         runEval (eval (Let "x" (Print "foo" $ CstInt 2) (Var "bar")))
-        @?= ((["foo: 2"],[]),Left "Unknown variable: bar"),
+        @?= (["foo: 2"],Left "Unknown variable: bar"),
       --
       testCase "KvGet(covered)" $
         runEval (eval (Let "x" (KvPut (CstInt 0) (CstBool True)) (Let "y" (KvPut (CstInt 0) (CstBool False)) (KvGet (CstInt 0)))))
-        @?= (([],[(ValInt 0,ValBool False)]),Right (ValBool False)),
+        @?= ([],Right (ValBool False)),
       --
       testCase "KvGet(valid key)" $
         runEval (eval (Let "x" (KvPut (CstInt 0) (CstBool True)) (KvGet (CstInt 0))))
-        @?= (([],[(ValInt 0,ValBool True)]),Right (ValBool True)),
+        @?= ([],Right (ValBool True)),
       --
       testCase "KvGet(Invalid key)" $
         runEval (eval (Let "x" (KvPut (CstInt 0) (CstBool True)) (KvGet (CstInt 1))))
-        @?= (([],[(ValInt 0,ValBool True)]),Left "Invalid key: ValInt 1"),
+        @?= ([],Left "Invalid key: ValInt 1"),
       -- Identity: pure id <*> v = v
       testCase "Applicative(Idnetity)" $
         runEval (pure id <*> (pure (ValInt 3)))
-        @?= (([],[]), Right (ValInt 3)),
+        @?= ([],Right (ValInt 3)),
       -- Composition: pure (.) <*> u <*> v <*> w = u <*> (v <*> w)
       testCase "Applicative(Composition)" $
         let 
@@ -125,7 +125,7 @@ evalTests =
             left = pure (.) <*> u <*> v <*> w
             right = u <*> (v <*> w)
         in runEval (isEql left right)
-        @?= (([],[]), Right (ValBool True)),
+        @?= ([], Right (ValBool True)),
       -- Homomorphism: pure f <*> pure x = pure (f x)
       testCase "Applicative(Homomorphism)" $
         let 
@@ -136,7 +136,7 @@ evalTests =
             left = pure f <*> pure x
             right = pure (f x)
         in runEval (isEql left right)
-        @?= (([],[]), Right (ValBool True)),
+        @?= ([], Right (ValBool True)),
       -- Interchange: u <*> pure y = pure ($ y) <*> u
       testCase "Applicative(Interchange)" $
         let 
@@ -147,7 +147,7 @@ evalTests =
             left = f <*> pure x
             right = pure ($ x) <*> f
         in runEval (isEql left right)
-        @?= (([],[]), Right (ValBool True))
+        @?= ([], Right (ValBool True))
 
 
     ]

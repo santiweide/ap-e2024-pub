@@ -100,8 +100,10 @@ catch (EvalM m1) (EvalM m2) = EvalM $ \env state ->
     (state1, Left _) -> m2 env (mergeState state state1)
     (state1, Right x) -> ((mergeState state state1), Right x)
 
-runEval :: EvalM a -> (State, Either Error a)
-runEval (EvalM m) = m envEmpty ([],[])
+runEval :: EvalM a -> ([String], Either Error a)
+runEval (EvalM m) = 
+    let ((logs, _), res) =  m envEmpty ([],[]) 
+    in (logs, res)
 
 
 evalIntBinOp :: (Integer -> Integer -> EvalM Integer) -> Exp -> Exp -> EvalM Val
