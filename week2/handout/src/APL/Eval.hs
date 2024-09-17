@@ -55,12 +55,6 @@ instance Monad EvalM where
         case (m env) of
             Left error -> Left error
             Right m' -> let (EvalM n) = f m' in n env
--- question: why cannot we just return f m' but the EvalM n = f m', => n
--- 因为我们不希望返回的结果中还包括env作为参数的东西，我们希望在case 中是narrow down的，即使用我们最开始定义的env来narrow down into -> n env
--- Here our type b is Either Error a
---      and type a is EvalM (Env -> Either Error a)
--- That's rationable!!
-
 
 runEval :: EvalM a -> Either Error a
 runEval (EvalM a)  = a envEmpty

@@ -13,8 +13,8 @@ envExtend :: VName -> Env -> Env
 envExtend v env = v : env
 
 envLookup :: VName -> Env -> Maybe Error
-envLookup v [] = Just ("Variable not in scope: " ++ v)
-envLookup v (x:xs) = if v == x then Nothing else envLookup v xs
+envLookup _ [] = Nothing
+envLookup v (x:xs) = if v == x then Just v else envLookup v xs
 
 newtype CheckM a = CheckM (Env -> Maybe a)
 
@@ -44,8 +44,8 @@ check (CstInt x) = pure (CstInt x)
 check (CstBool x) = pure (CstBool x)
 check (Var name) = CheckM $ \env -> 
     case envLookup name env of
-        Nothing  -> Just (Var name)
-        Just _ -> Nothing
+        Just _  -> Just (Var name)
+        Nothing -> Nothing
 check (Lambda v body) = CheckM $ \env -> 
     runCheck (check body) (envExtend v env)
 check (Let v e1 e2) = do
@@ -92,6 +92,13 @@ check (TryCatch e1 e2) = do
 check (Print str e) = do
     _ <- check e
     pure (Print str e)
+check (KvPut e1 e2) = do
+    _ <- check e1
+    _ <- check e2
+    pure (KvPut e1 e2)
+check (KvGet e) = do
+    _ <- check e
+    pure (KvGet e)
 
 -- Entrance
 checkExp :: Exp -> Maybe Error

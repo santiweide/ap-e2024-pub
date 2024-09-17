@@ -1,3 +1,4 @@
+-- tar -czvf a2-code.tar.gz a2.cabal runtests.hs src/APL/*
 module APL.Check_Tests (tests) where
 
 import APL.AST (Exp (..))

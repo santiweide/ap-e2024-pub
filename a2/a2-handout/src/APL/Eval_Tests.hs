@@ -81,6 +81,10 @@ evalTests =
           (TryCatch (Div (CstInt 7) (CstInt 0)) (CstBool True))
           @?= Right (ValBool True),
       --
+      testCase "TryCatch(e1-effect-visible)" $
+        runEval (eval (TryCatch (Let "x" (CstInt 10) (KvPut (CstInt 0) (CstInt 1))) (KvGet (CstInt 0)) ))
+          @?= runEval (eval (TryCatch (Let "x" (CstInt 10) (KvPut (CstInt 0) (CstInt 1))) (KvGet (CstInt 0)) )),
+      --
       testCase "Print" $
         runEval (eval (Let "x" (Print "foo" $ CstInt 2)  (Print "bar" $ CstInt 3)))
         @?= ((["foo: 2","bar: 3"],[]),Right (ValInt 3)),
