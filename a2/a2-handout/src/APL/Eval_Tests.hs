@@ -147,8 +147,11 @@ evalTests =
             left = f <*> pure x
             right = pure ($ x) <*> f
         in runEval (isEql left right)
-        @?= ([], Right (ValBool True))
-
+        @?= ([], Right (ValBool True)),
+      -- 
+      testCase "Print function" $
+        runEval (eval (Print "foo" $ Lambda "x" (Var "x")))
+        @?= (["foo: #<func>"],Right (ValFun [] "x" (Var "x")))
 
     ]
 

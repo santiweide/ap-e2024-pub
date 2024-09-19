@@ -39,15 +39,16 @@ instance Monad CheckM where
 
 -- if valid return an Exp
 -- if invalid return Nothing
-check :: Exp -> CheckM Exp
-check (CstInt x) = pure (CstInt x)
-check (CstBool x) = pure (CstBool x)
+check :: Exp -> CheckM ()
+check (CstInt _) = CheckM $ \_ -> Just ()
+check (CstBool _) =  CheckM $ \_ -> Just ()
 check (Var name) = CheckM $ \env -> 
-    case envLookup name env of
-        Just _  -> Just (Var name)
-        Nothing -> Nothing
-check (Lambda v body) = CheckM $ \env -> 
-    runCheck (check body) (envExtend v env)
+        case envLookup name env of
+            Just _  -> Just ()
+            Nothing -> Nothing
+
+check (Lambda v body) = CheckM $ \env -> runCheck (check body) (envExtend v env)
+
 check (Let v e1 e2) = do
     _ <- check e1
     CheckM $ \env -> runCheck (check e2) (envExtend v env)
@@ -55,50 +56,61 @@ check (Let v e1 e2) = do
 check (Add e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (Add e1 e2)
+    pure ()
+
 check (Sub e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (Sub e1 e2)
+    pure ()
+
 check (Mul e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (Sub e1 e2)
+    pure ()
+
 check (Div e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (Sub e1 e2)
+    pure ()
+
 check (Pow e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (Pow e1 e2)
+    pure ()
+
 check (Eql e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (Eql e1 e2)
+    pure ()
+
 check (If cond e1 e2) = do
     _ <- check cond
     _ <- check e1
     _ <- check e2
-    pure (If cond e1 e2)
+    pure ()
+
 check (Apply e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (Apply e1 e2)
+    pure ()
+
 check (TryCatch e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (TryCatch e1 e2)
-check (Print str e) = do
+    pure ()
+
+check (Print _ e) = do
     _ <- check e
-    pure (Print str e)
+    pure ()
+
 check (KvPut e1 e2) = do
     _ <- check e1
     _ <- check e2
-    pure (KvPut e1 e2)
+    pure ()
+
 check (KvGet e) = do
     _ <- check e
-    pure (KvGet e)
+    pure ()
 
 -- Entrance
 checkExp :: Exp -> Maybe Error
