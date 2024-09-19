@@ -91,21 +91,24 @@ pLExp =
       KvPut <$> (lKeyword "put" *> pAtom) <*> pAtom,
       KvGet <$> (lKeyword "get" *> pAtom),
       Print <$> (lKeyword "print" *> lStringWithQuotes) <*> pAtom,
-      do
-        f <- pAtom
-        args <- many pAtom
-        pure $ foldl Apply f args,
       pAtom
     ]
 
+-- Apply f could only be a lambda or a 
+pExp3 :: Parser Exp
+pExp3 = do
+  f <- pLExp
+  args <- many pAtom
+  pure $ foldl Apply f args
+
 pExp2 :: Parser Exp
-pExp2 = pLExp >>= chain
+pExp2 = pExp3 >>= chain
   where
     chain x =
       choice
         [ do
             lString "**"
-            y <- pLExp
+            y <- pExp3
             pure $ Pow x y,  -- Right-associative, so we don't chain here
           pure x
         ]
