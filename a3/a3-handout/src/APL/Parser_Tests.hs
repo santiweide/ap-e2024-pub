@@ -64,5 +64,11 @@ tests =
         "Lexing edge cases"
         [ parserTest "2 " $ CstInt 2,
           parserTest " 2" $ CstInt 2
+        ],
+      testGroup
+        "Apply atomic"
+        [ parserTest "x y z" $ (Apply (Apply (Var "x") (Var "y")) (Var "z")),
+          parserTest "x(y z)" $ (Apply (Var "x") (Apply (Var "y") (Var "z"))),
+          parserTestFail "x if x then y else z"
         ]
     ]
