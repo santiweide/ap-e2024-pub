@@ -91,7 +91,7 @@ pLExp =
       KvPut <$> (lKeyword "put" *> pAtom) <*> pAtom,
       KvGet <$> (lKeyword "get" *> pAtom),
       Print <$> (lKeyword "print" *> lStringWithQuotes) <*> pAtom,
-      do
+      do -- fExp
         f <- pAtom
         args <- many pAtom
         pure $ foldl Apply f args,
