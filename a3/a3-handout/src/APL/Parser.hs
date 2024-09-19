@@ -115,8 +115,8 @@ pLExp =
       pFExp
     ]
 
-pExp1 :: Parser Exp
-pExp1 = pLExp >>= chain
+pExp2 :: Parser Exp
+pExp2 = pLExp >>= chain
   where
     chain x =
       choice
@@ -125,13 +125,22 @@ pExp1 = pLExp >>= chain
             lString "**"
             y <- pLExp
             pure $ Pow x y,
+          pure x
+        ]
+
+pExp1 :: Parser Exp
+pExp1 = pExp2 >>= chain
+  where
+    chain x =
+      choice
+        [ 
           do
             lString "*"
-            y <- pLExp
+            y <- pExp2
             chain $ Mul x y,
           do
             lString "/"
-            y <- pLExp
+            y <- pExp2
             chain $ Div x y,
           pure x
         ]
@@ -149,7 +158,15 @@ pExp0 = pExp1 >>= chain
             lString "-"
             y <- pExp1
             chain $ Sub x y,
-          do
+          pure x
+        ]
+
+pExp00 :: Parser Exp
+pExp00 = pExp0 >>= chain
+  where
+    chain x =
+      choice
+        [ do
             lString "=="
             y <- pExp0
             chain $ Eql x y,
@@ -162,7 +179,7 @@ pExp = choice
       KvPut <$> (lKeyword "put" *> pAtom) <*> pExp,
       KvGet <$> (lKeyword "get" *> pAtom),
       Print <$> (lKeyword "print" *> lStringWithQuotes) <*> pExp,
-      pExp0
+      pExp00
     ]
 
 parseAPL :: FilePath -> String -> Either String Exp

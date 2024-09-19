@@ -47,7 +47,9 @@ tests =
           parserTest "x+y-z" $ Sub (Add (Var "x") (Var "y")) (Var "z"),
           parserTest "x+y*z" $ Add (Var "x") (Mul (Var "y") (Var "z")),
           parserTest "x*y*z" $ Mul (Mul (Var "x") (Var "y")) (Var "z"),
-          parserTest "x/y/z" $ Div (Div (Var "x") (Var "y")) (Var "z")
+          parserTest "x/y/z" $ Div (Div (Var "x") (Var "y")) (Var "z"),
+          parserTest "x+y==y+x" $ (Eql (Add (Var "x") (Var "y")) (Add (Var "y") (Var "x"))),
+          parserTest "x**x*y+y==y+x" $ (Eql (Add (Mul (Pow (Var "x") (Var "x")) (Var "y")) (Var "y")) (Add (Var "y") (Var "x")))
         ],
       testGroup
         "Conditional expressions"
