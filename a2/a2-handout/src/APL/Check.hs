@@ -40,8 +40,8 @@ instance Monad CheckM where
 -- if valid return an Exp
 -- if invalid return Nothing
 check :: Exp -> CheckM ()
-check (CstInt _) = CheckM $ \_ -> Just ()
-check (CstBool _) =  CheckM $ \_ -> Just ()
+check (CstInt _) = pure ()
+check (CstBool _) = pure ()
 check (Var name) = CheckM $ \env -> 
         case envLookup name env of
             Just _  -> Just ()

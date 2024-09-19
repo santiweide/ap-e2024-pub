@@ -1,27 +1,3 @@
--- origin
-Atom ::= var|int|bool|"("Exp")" 
-
-FExp ::= Atom
-        | FExp FExp
-
-LExp ::= FExp
-        | "if" Exp "then" Exp "else" Exp LExp
-        | "\" var "->" Exp
-        | "try" Exp "catch" Exp
-        | "let" var "=" Exp "in" Exp
-
-Exp ::=  LExp
-        | Exp "==" Exp -- lowest
-        | Exp "+" Exp
-        | Exp "-" Exp
-        | Exp "*" Exp Exp "/" Exp
-        | Exp "**" Exp -- highest
-        | "print" string Atom
-        | "get" Atom
-        | "put" Atom Atom
-
--- transformed into tail-recursion
-
 string ::= just string
 var ::= some special string
 
