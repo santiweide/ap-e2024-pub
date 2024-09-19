@@ -80,7 +80,10 @@ pAtom =
     [ CstInt <$> lInteger,
       CstBool <$> lBool,
       Var <$> lVName,
-      lString "(" *> pExp <* lString ")"
+      lString "(" *> pExp <* lString ")",
+      KvPut <$> (lKeyword "put" *> pAtom) <*> pAtom,
+      KvGet <$> (lKeyword "get" *> pAtom),
+      Print <$> (lKeyword "print" *> lStringWithQuotes) <*> pAtom
     ]
 
 pFExp :: Parser Exp
@@ -174,13 +177,8 @@ pExp00 = pExp0 >>= chain
         ]
 
 pExp :: Parser Exp
-pExp = choice 
-    [
-      KvPut <$> (lKeyword "put" *> pAtom) <*> pExp,
-      KvGet <$> (lKeyword "get" *> pAtom),
-      Print <$> (lKeyword "print" *> lStringWithQuotes) <*> pExp,
-      pExp00
-    ]
+pExp = pExp00
+    
 
 parseAPL :: FilePath -> String -> Either String Exp
 parseAPL fname s = case parse (space *> pExp <* eof) fname s of

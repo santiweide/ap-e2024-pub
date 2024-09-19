@@ -79,7 +79,7 @@ tests =
           parserTest "print \"foo\" x" $ (Print "foo" (Var "x")),
           parserTest "get x" $ (KvGet (Var "x")),
           parserTest "getx" $ (Var "getx"),
-          parserTestFail "get x y" -- special case for get is priorer than apply
+          parserTest "get x y" $ (Apply (KvGet (Var "x")) (Var "y")) -- special case for get is priorer than apply
         ],
       testGroup
         "Let, try-catch and lambda"
