@@ -83,45 +83,55 @@ pAtom =
       lString "(" *> pExp <* lString ")"
     ]
 
--- keywords + pAtom
+pFExp :: Parser Exp
+pFExp = 
+    choice 
+      [
+        do 
+          f <- pAtom
+          args <- many pAtom
+          pure $ foldl Apply f args,
+        pAtom
+      ]
+
 pLExp :: Parser Exp
 pLExp = 
   choice
-    [ try $ If <$> (lKeyword "if" *> pExp) <*> (lKeyword "then" *> pExp) <*> (lKeyword "else" *> pExp),
-      KvPut <$> (lKeyword "put" *> pAtom) <*> pAtom,
-      KvGet <$> (lKeyword "get" *> pAtom),
-      Print <$> (lKeyword "print" *> lStringWithQuotes) <*> pAtom,
-      do -- fExp
-        f <- pAtom
-        args <- many pAtom
-        pure $ foldl Apply f args,
-      pAtom
+    [ 
+      Let 
+        <$> (lKeyword "let" *> lVName)
+        <*> (lString "=" *> pExp)
+        <*> (lKeyword "in" *> pExp),
+      TryCatch 
+        <$> (lKeyword "try" *> pExp)
+        <*> (lKeyword "catch" *> pExp),
+      Lambda
+        <$> (lString "\\" *> lVName)
+        <*> (lKeyword "->" *> pExp),
+      If
+        <$> (lKeyword "if" *> pExp)
+        <*> (lKeyword "then" *> pExp)
+        <*> (lKeyword "else" *> pExp),
+      pFExp
     ]
 
-pExp2 :: Parser Exp
-pExp2 = pLExp >>= chain
+pExp1 :: Parser Exp
+pExp1 = pLExp >>= chain
   where
     chain x =
       choice
-        [ do
+        [ 
+          do
             lString "**"
             y <- pLExp
-            pure $ Pow x y,  -- Right-associative, so we don't chain here
-          pure x
-        ]
-
-pExp1 :: Parser Exp
-pExp1 = pExp2 >>= chain
-  where
-    chain x =
-      choice
-        [ do
+            pure $ Pow x y,
+          do
             lString "*"
-            y <- pExp2
+            y <- pLExp
             chain $ Mul x y,
           do
             lString "/"
-            y <- pExp2
+            y <- pLExp
             chain $ Div x y,
           pure x
         ]
@@ -139,15 +149,7 @@ pExp0 = pExp1 >>= chain
             lString "-"
             y <- pExp1
             chain $ Sub x y,
-          pure x
-        ]
-
-pExp00 :: Parser Exp
-pExp00 = pExp0 >>= chain
-  where
-    chain x =
-      choice
-        [ do
+          do
             lString "=="
             y <- pExp0
             chain $ Eql x y,
@@ -155,7 +157,13 @@ pExp00 = pExp0 >>= chain
         ]
 
 pExp :: Parser Exp
-pExp = pExp00
+pExp = choice 
+    [
+      KvPut <$> (lKeyword "put" *> pAtom) <*> pExp,
+      KvGet <$> (lKeyword "get" *> pAtom),
+      Print <$> (lKeyword "print" *> lStringWithQuotes) <*> pExp,
+      pExp0
+    ]
 
 parseAPL :: FilePath -> String -> Either String Exp
 parseAPL fname s = case parse (space *> pExp <* eof) fname s of
