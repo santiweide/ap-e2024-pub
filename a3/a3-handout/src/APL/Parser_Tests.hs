@@ -71,6 +71,7 @@ tests =
         "Apply atomic"
         [ parserTest "x y z" $ (Apply (Apply (Var "x") (Var "y")) (Var "z")),
           parserTest "x(y z)" $ (Apply (Var "x") (Apply (Var "y") (Var "z"))),
+          parserTest "x y z a b c" $ (Apply (Apply (Apply (Apply (Apply (Var "x") (Var "y")) (Var "z")) (Var "a")) (Var "b")) (Var "c")),
           parserTestFail "x if x then y else z"
         ],
       testGroup
