@@ -76,6 +76,7 @@ data EvalOp a
   | StatePutOp State a
   | PrintOp String a
   | ErrorOp Error
+  | TryCatchOp a a 
 
 instance Functor EvalOp where
   fmap f (ReadOp k) = ReadOp $ f . k
@@ -83,6 +84,7 @@ instance Functor EvalOp where
   fmap f (StatePutOp s m) = StatePutOp s $ f m
   fmap f (PrintOp p m) = PrintOp p $ f m
   fmap _ (ErrorOp e) = ErrorOp e
+  fmap f (TryCatchOp a b) = TryCatchOp (f a) (f b)
 
 type EvalM a = Free EvalOp a
 
@@ -117,7 +119,7 @@ failure :: String -> EvalM a
 failure = Free . ErrorOp
 
 catch :: EvalM a -> EvalM a -> EvalM a
-catch = error "TODO"
+catch a b = Free $ TryCatchOp a b
 
 evalKvGet :: Val -> EvalM Val
 evalKvGet = error "TODO"

@@ -14,3 +14,8 @@ runEval = runEval' envEmpty stateInitial
       let (ps, res) = runEval' r s m
        in (p : ps, res)
     runEval' _ _ (Free (ErrorOp e)) = ([], Left e)
+    runEval' r s (Free (TryCatchOp m1 m2)) = 
+      let res = runEval' r s m1
+      in case res of
+          (_, Left _) -> runEval' r s m2
+          (_, Right val) -> res
