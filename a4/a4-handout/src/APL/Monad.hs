@@ -95,6 +95,7 @@ type EvalM a = Free EvalOp a
 askEnv :: EvalM Env
 askEnv = Free $ ReadOp $ \env -> pure env
 
+-- TODO Why it is here?
 modifyEffects :: (Functor e, Functor h) => (e (Free e a) -> h (Free e a)) -> Free e a -> Free h a
 modifyEffects _ (Pure x) = Pure x
 modifyEffects g (Free e) = Free $ modifyEffects g <$> g e

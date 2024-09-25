@@ -70,7 +70,7 @@ pureTests =
 
 ioTests :: TestTree
 ioTests =
-  testGroup
+  testGroup -- TODO implement some pure interpreter?
     "IO interpreter"
     [ testCase "print" $ do
         let s1 = "Lalalalala"
@@ -87,7 +87,7 @@ ioTests =
         testCase "print 2" $ do
            (out, res) <-
              captureIO [] $
-               evalIO' $
+               evalIO' $ -- expected type ‘Exp’
                  Print "This is also 1" $
                    Print "This is 1" $
                      CstInt 1
@@ -95,7 +95,7 @@ ioTests =
         testCase "catch-failure-on-exp1" $ do
            (out, res) <-
              captureIO [] $
-               runEvalIO $ do
+               runEvalIO $ do -- expected EvalM Val, aka EvalOp (Free EvalOp Val)  by type EvalM a = Free EvalOp a
                   catch (failure "Oh no!") (pure "Success!")
            (out, res) @?= ([],Right "Success"),
         testCase "trycatch-failure-on-exp1" $ do
@@ -112,5 +112,13 @@ ioTests =
              captureIO [] $
                evalIO' $ 
                  TryCatch (CstInt 5) divZero
-           (out, res) @?= ([],Right (ValInt 5))
+           (out, res) @?= ([],Right (ValInt 5)),
+        testCase "kvput" $ do
+           let put0 m = KvPutOp (ValInt 0) (ValInt 1) m
+               get0 = Free $ KvGetOp (ValInt 0) $ \val -> pure val
+           (out, res) <-
+             captureIO [] $
+               runEvalIO $ do 
+                 Free $ put0 $ get0
+           (out, res) @?= ([],Right (ValInt 1))
     ]
