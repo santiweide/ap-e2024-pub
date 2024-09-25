@@ -88,8 +88,14 @@ runEvalIO evalm = do
       case res of
         Left err -> pure $ Left err
         Right dbState -> case lookup key dbState of
-          Just val -> runEvalIO' r db (k val)
-          Nothing -> pure $ Left $ "Key not found: " ++ show key
+          Just val -> runEvalIO' r db (k val) -- continue further operation by passing as a param
+          Nothing -> do
+            input <- prompt ("Invalid key: " ++ show key ++ ". Enter a replacement: ")
+            let readval = readVal input -- deserialize
+            case readval of
+              Just key' -> runEvalIO' r db (Free (KvGetOp key' k))
+              Nothing -> return $ Left $ "Invalid value input: " ++ input
+
     runEvalIO' r db (Free (KvPutOp key val m)) = do
       res <- readDB db
       case res of
@@ -100,14 +106,7 @@ runEvalIO evalm = do
           runEvalIO' r db m
 
 -- memory cache version(adding in-mem cache operator?) TODO
--- implement KvPutOp & KvGetOp with StateGetOp and StatePutOp
-    -- runEvalIO' r db (Free (KvGetOp key k)) = do
-      -- result <- runEvalIO' r db (Free (StateGetOp Pure))
-      -- case res of
-      --   Left err -> return $ Left err
-      --   Right dbState -> case lookup key dbState of
-      --     Just val -> runEvalIO' r db (k val) 
-      --     Nothing -> return $ Left $ "key not found: " ++ show key
+-- implement KvPutOp & KvGetOp with StateGetOp and StatePutOp: not sure if it is a better solution
     -- runEvalIO' r db (Free (KvPutOp key val m)) = do
       -- res <- runEvalIO' r db (Free (StateGetOp Pure))
       -- case res of

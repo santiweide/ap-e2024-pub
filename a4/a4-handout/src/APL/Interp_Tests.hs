@@ -97,7 +97,7 @@ ioTests =
              captureIO [] $
                runEvalIO $ do -- expected EvalM Val, aka EvalOp (Free EvalOp Val)  by type EvalM a = Free EvalOp a
                   catch (failure "Oh no!") (pure "Success!")
-           (out, res) @?= ([],Right "Success"),
+           (out, res) @?= ([],Right "Success!"),
         testCase "trycatch-failure-on-exp1" $ do
            let badEql = CstInt 0 `Eql` CstBool True
                divZero = CstInt 1 `Div` CstInt 0
@@ -113,12 +113,29 @@ ioTests =
                evalIO' $ 
                  TryCatch (CstInt 5) divZero
            (out, res) @?= ([],Right (ValInt 5)),
-        testCase "kvput" $ do
-           let put0 m = KvPutOp (ValInt 0) (ValInt 1) m
+        testCase "kv-vanilla: kv is a k-ranged operation" $ do
+           let put0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
+               put1 m = Free $ KvPutOp (ValInt 1) (ValInt 1) m
+               put2 m = Free $ KvPutOp (ValInt 0) (ValInt 100) m
                get0 = Free $ KvGetOp (ValInt 0) $ \val -> pure val
            (out, res) <-
              captureIO [] $
                runEvalIO $ do 
-                 Free $ put0 $ get0
-           (out, res) @?= ([],Right (ValInt 1))
+                 put0 $ put1 $ put2 $ get0
+           (out, res) @?= ([],Right (ValInt 100)),
+        testCase "state-vanilla: state is a global-ranged operation" $ do
+           (out, res) <-
+             captureIO [] $
+               runEvalIO $ do 
+                  Free $ StatePutOp [(ValInt 10, ValInt 2)] $ Free $ StatePutOp [(ValInt 1, ValInt 2)] $ getState
+           (out, res) @?= ([],Right [(ValInt 1,ValInt 2)]),
+        testCase "state X kv, state flush" $ do
+           let sput0 m = Free $ StatePutOp [(ValInt 0, ValInt 2)] m
+               kput0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
+               sput1 m = Free $ StatePutOp [(ValBool True, ValInt 2)] m
+           (out, res) <-
+             captureIO [] $
+               runEvalIO $ do 
+                  sput0 $ kput0 $ sput1 $ getState
+           (out, res) @?= ([],Right [(ValBool True,ValInt 2)])
     ]
