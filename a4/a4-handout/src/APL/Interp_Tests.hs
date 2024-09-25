@@ -137,5 +137,19 @@ ioTests =
              captureIO [] $
                runEvalIO $ do 
                   sput0 $ kput0 $ sput1 $ getState
-           (out, res) @?= ([],Right [(ValBool True,ValInt 2)])
+           (out, res) @?= ([],Right [(ValBool True,ValInt 2)]),
+        testCase "Missing key Founded" $ do
+            (_, res) <-
+              captureIO ["ValInt 1"] $
+                runEvalIO $
+                  Free $ StatePutOp [(ValInt 1, ValInt 2)] $ 
+                    Free $ KvGetOp (ValInt 0) $ \val -> pure val
+            res @?= Right (ValInt 2),
+        testCase "Missing key Not Found" $ do
+            (_, res) <-
+              captureIO ["xx"] $
+                runEvalIO $
+                  Free $ StatePutOp [(ValInt 1, ValInt 2)] $ 
+                    Free $ KvGetOp (ValBool False) $ \val -> pure val
+            res @?= Left "Invalid value input: xx"
     ]
