@@ -56,10 +56,13 @@ lInteger =
 lString :: String -> Parser ()
 lString s = lexeme $ void $ chunk s
 
+isPrintedString :: Char -> Bool
+isPrintedString c = c /= '"'
+
 lStringWithQuotes :: Parser String
 lStringWithQuotes = lexeme $ do
   void $ chunk "\""
-  str <- many (satisfy (/= '"'))
+  str <- many (satisfy isPrintedString)
   void $ chunk "\""
   return str
 

@@ -78,6 +78,7 @@ tests =
         "Print, get and put"
         [ parserTest "put x y" $ (KvPut (Var "x") (Var "y")),
           parserTest "print \"foo\" x" $ (Print "foo" (Var "x")),
+          parserTest "print \"fo o\" x" $ (Print "fo o" (Var "x")),  -- space can be printed
           parserTest "get x" $ (KvGet (Var "x")),
           parserTest "getx" $ (Var "getx"),
           parserTest "get x y" $ (Apply (KvGet (Var "x")) (Var "y")) -- special case for get is priorer than apply
