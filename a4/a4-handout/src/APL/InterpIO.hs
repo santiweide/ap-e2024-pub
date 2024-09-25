@@ -73,3 +73,18 @@ runEvalIO evalm = do
       case result of
         Left _ -> runEvalIO' r db m2
         Right val -> pure (Right val)
+    runEvalIO' r db (Free (KvGetOp key k)) = do
+      dbState <- readDB db
+      case dbState of
+        Left err -> pure $ Left err
+        Right state -> case lookup key state of
+          Just val -> runEvalIO' r db (k val)
+          Nothing -> pure $ Left $ "Key not found: " ++ show key
+    runEvalIO' r db (Free (KvPutOp key val m)) = do
+        dbState <- readDB db
+        case dbState of
+          Left err -> pure $ Left err
+          Right state -> do
+              let newState = (key, val) : filter ((/= key) . fst) state
+              writeDB db newState
+              runEvalIO' r db m
