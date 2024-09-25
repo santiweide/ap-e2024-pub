@@ -56,60 +56,15 @@ withTempDB m = do
 
 runEvalIO :: EvalM a -> IO (Either Error a)
 runEvalIO evalm = do
-    --  runEvalIO clears the database on each execution, 
-    --  so database values will not persist between invocations of runEvalIO.
   clearDB
   runEvalIO' envEmpty dbFile evalm
   where
     runEvalIO' :: Env -> FilePath -> EvalM a -> IO (Either Error a)
     runEvalIO' _ _ (Pure x) = pure $ pure x
     runEvalIO' r db (Free (ReadOp k)) = runEvalIO' r db $ k r
-    runEvalIO' r db (Free (StateGetOp k)) = do 
-      res <- readDB db
-      case res of
-        Left err -> pure $ Left err
-        Right dbState -> runEvalIO' r db (k dbState)
-
-    runEvalIO' r db (Free (StatePutOp s m)) = do 
-      writeDB db s
-      runEvalIO' r db m
- 
+    runEvalIO' r db (Free (StateGetOp k)) = error "TODO in Task 3"
+    runEvalIO' r db (Free (StatePutOp s m)) = error "TODO in Task 3"
     runEvalIO' r db (Free (PrintOp p m)) = do
       putStrLn p
       runEvalIO' r db m
     runEvalIO' _ _ (Free (ErrorOp e)) = pure $ Left e
-    runEvalIO' r db (Free (TryCatchOp m1 m2)) = do
-      res <- runEvalIO' r db m1
-      case res of
-        Left _ -> runEvalIO' r db m2
-        Right val -> pure $ Right val
-    runEvalIO' r db (Free (KvGetOp key k)) = do
-      res <- readDB db
-      case res of
-        Left err -> pure $ Left err
-        Right dbState -> case lookup key dbState of
-          Just val -> runEvalIO' r db (k val) -- continue further operation by passing as a param
-          Nothing -> do
-            input <- prompt ("Invalid key: " ++ show key ++ ". Enter a replacement: ")
-            let readval = readVal input -- deserialize
-            case readval of
-              Just key' -> runEvalIO' r db (Free (KvGetOp key' k))
-              Nothing -> pure $ Left $ "Invalid value input: " ++ input
-    runEvalIO' r db (Free (KvPutOp key val m)) = do
-      res <- readDB db
-      case res of
-        Left err -> pure $ Left err
-        Right dbState -> do
-          let dbState' = (key, val) : filter ((/= key) . fst) dbState
-          writeDB db dbState'
-          runEvalIO' r db m
-
--- memory cache version(adding in-mem cache operator?) TODO
--- implement KvPutOp & KvGetOp with StateGetOp and StatePutOp: not sure if it is a better solution
-    -- runEvalIO' r db (Free (KvPutOp key val m)) = do
-      -- res <- runEvalIO' r db (Free (StateGetOp Pure))
-      -- case res of
-      --   Left err -> return $ Left err
-      --   Right dbState -> do
-      --     let dbState' = (key, val) : filter ((/= key) . fst) dbState
-      --     runEvalIO' r db (Free (StatePutOp dbState' m))
