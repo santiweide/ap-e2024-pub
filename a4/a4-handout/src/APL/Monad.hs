@@ -77,6 +77,8 @@ data EvalOp a
   | PrintOp String a
   | ErrorOp Error
   | TryCatchOp a a 
+  | KvGetOp Val (Val -> a)
+  | KvPutOp Val Val a
 
 instance Functor EvalOp where
   fmap f (ReadOp k) = ReadOp $ f . k
@@ -85,6 +87,8 @@ instance Functor EvalOp where
   fmap f (PrintOp p m) = PrintOp p $ f m
   fmap _ (ErrorOp e) = ErrorOp e
   fmap f (TryCatchOp a b) = TryCatchOp (f a) (f b)
+  fmap f (KvGetOp key k) = KvGetOp key (f . k)
+  fmap f (KvPutOp key val m) = KvPutOp key val (f m)
 
 type EvalM a = Free EvalOp a
 
@@ -122,10 +126,10 @@ catch :: EvalM a -> EvalM a -> EvalM a
 catch a b = Free $ TryCatchOp a b
 
 evalKvGet :: Val -> EvalM Val
-evalKvGet = error "TODO"
+evalKvGet key = Free $ KvGetOp key pure
 
 evalKvPut :: Val -> Val -> EvalM ()
-evalKvPut = error "TODO"
+evalKvPut key val = Free $ KvPutOp key val (pure ())
 
 transaction :: EvalM () -> EvalM ()
 transaction = error "TODO"
