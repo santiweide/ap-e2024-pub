@@ -200,5 +200,13 @@ ioTests =
               captureIO ["xx"] $
                 runEvalIO $ 
                   transaction (goodPut0 >> evalPrint "weee" >> goodPut1 >> evalPrint "arr") >> getState
-            (out, res) @?= (["weee", "arr"], Right [(ValInt 1,ValBool True),(ValInt 0,ValBool False)])
+            (out, res) @?= (["weee", "arr"], Right [(ValInt 1,ValBool True),(ValInt 0,ValBool False)]),
+        testCase "IO-transaction with State and KV" $ do
+            let goodPutS0 = putState [(ValInt 0, ValInt 1)]
+                goodPutS1 = putState [(ValInt 2, ValInt 3)]
+            (out, res) <-
+              captureIO ["xx"] $
+                runEvalIO $ 
+                  transaction (goodPutS0 >> evalPrint "weee" >> goodPutS1 >> evalPrint "arr") >> getState
+            (out, res) @?= (["weee", "arr"], Right [(ValInt 2,ValInt 3)])
     ]
