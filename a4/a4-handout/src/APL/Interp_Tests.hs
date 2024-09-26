@@ -151,5 +151,34 @@ ioTests =
                 runEvalIO $
                   Free $ StatePutOp [(ValInt 1, ValInt 2)] $ 
                     Free $ KvGetOp (ValBool False) $ \val -> pure val
-            res @?= Left "Invalid value input: xx"
+            res @?= Left "Invalid value input: xx",
+        testCase "transaction-vanilla-good" $ do
+            let goodPut = evalKvPut (ValInt 0) (ValInt 1)
+                get0    = KvGet (CstInt 0)
+            (out, res) <-
+              captureIO [] $
+                runEvalIO $
+                  transaction goodPut >> eval get0
+            (out, res) @?= ([], Right (ValInt 1)),
+        testCase "transaction-vanilla-bad" $ do
+            let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+                get0    = KvGet (CstInt 0)
+            (out, res) <-
+              captureIO [] $
+                runEvalIO $
+                  transaction badPut >> eval get0
+            (out, res) @?= ([], Left "Key not found: ValInt 0"),
+        testCase "transaction-vanilla-print" $ do
+            (out, res) <-
+              captureIO [] $
+                runEvalIO $
+                  transaction (evalPrint "weee" >> evalPrint "arr" >> evalPrint "woof" >> failure "oh shit")
+            (out, res) @?= (["weee", "arr", "woof"],Right ()),
+        testCase "transaction X transaction print: bad but continue printing, and no state change" $ do
+            let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+            (out, res) <-
+              captureIO [] $
+                runEvalIO $
+                  transaction badPut >> evalPrint "weee" >> transaction badPut >> evalPrint "arr" >> transaction badPut >> evalKvGet (ValInt 0)
+            (out, res) @?= (["weee","arr"],Left "Key not found: ValInt 0")
     ]

@@ -135,4 +135,3 @@ evalKvPut key val = Free $ KvPutOp key val (pure ())
 
 transaction :: EvalM () -> EvalM ()
 transaction e = Free $ TransactionOp e $ pure ()
-

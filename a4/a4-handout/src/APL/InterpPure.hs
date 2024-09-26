@@ -2,40 +2,37 @@ module APL.InterpPure (runEval) where
 
 import APL.Monad
 
--- TODO add a transcation state inside?
 runEval :: EvalM a -> ([String], Either Error a)
-runEval m = let ((prints, states), res) = runEval' envEmpty stateInitial m
+runEval m = let ((prints, _), res) = runEval' envEmpty [] stateInitial m
   in (prints, res) where
-    runEval' :: Env -> State -> EvalM a -> (([String], State), Either Error a)
-    runEval' _ s (Pure x) = (([], s), pure x)
-    runEval' r s (Free (ReadOp k)) = runEval' r s $ k r
-    runEval' r s (Free (StateGetOp k)) = runEval' r s $ k s 
-    runEval' r _ (Free (StatePutOp s' m)) = runEval' r s' m
-    runEval' r s (Free (PrintOp p m)) =
-      let ((ps, s), res) = runEval' r s m
-       in ((p : ps, s), res)
-    runEval' _ s (Free (ErrorOp e)) = (([], s), Left e)
-    runEval' r s (Free (TryCatchOp m1 m2)) = 
-      let res = runEval' r s m1
+    runEval' :: Env -> [String] -> State -> EvalM a -> (([String], State), Either Error a)
+    runEval' _ p s (Pure x) = ((p, s), pure x)
+    runEval' r p s (Free (ReadOp k)) = runEval' r p s $ k r
+    runEval' r p s (Free (StateGetOp k)) = runEval' r p s $ k s 
+    runEval' r p _ (Free (StatePutOp s' k)) = runEval' r p s' k
+    runEval' r p s (Free (PrintOp p' k)) =
+      let ((ps, s'), res) = runEval' r p s k
+       in ((p' : ps, s'), res)
+    runEval' _ p s (Free (ErrorOp e)) = ((p, s), Left e)
+    runEval' r p s (Free (TryCatchOp m1 m2)) = 
+      let res = runEval' r p s m1
       in case res of
-          (_, Left _) -> runEval' r s m2
+          (_, Left _) -> runEval' r p s m2
           (_, Right _) -> res
-    runEval' r s (Free (KvGetOp key k)) = 
+    runEval' r p s (Free (KvGetOp key k)) = 
       case lookup key s of
-        Just val -> runEval' r s $ k val
-        Nothing -> (([], s), Left $ "Key not found: " ++ show key)
-    runEval' r s (Free (KvPutOp key val m)) = 
+        Just val -> runEval' r p s $ k val
+        Nothing -> ((p, s), Left $ "Key not found: " ++ show key) -- maybe should not clear the log?
+    runEval' r p s (Free (KvPutOp key val k)) = 
       let s' = (key, val) : filter ((/= key) . fst) s
-      in runEval' r s' m
-    runEval' r s (Free (TransactionOp m n)) =
-      let ((print1, state1), res) = runEval' r s m in
-        case res of
-          Left e -> let 
-              ((print2, state2), res') = runEval' r s n
-              print3 = print1 ++ print2
-            in ((print3, state2), res')
+      in runEval' r p s' k
+    runEval' r p s (Free (TransactionOp k n)) =
+      let ((p1, s1), res1) = runEval' r p s k in
+        case res1 of
+          Left _ -> let 
+              ((p2, s2), res2) = runEval' r p s n
+            in ((p2, s2), res2)
           Right _ -> let 
-              ((print2, state2), res') = runEval' r state1 n
-              print3 = print1 ++ print2
-            in ((print3, state2), res')
+              ((p2, s2), res2) = runEval' r p1 s1 n
+            in ((p2, s2), res2)
     
