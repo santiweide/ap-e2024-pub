@@ -65,7 +65,7 @@ runEvalIO evalm = do
     runEvalIO' _ _ (Pure x) = pure $ pure x
     runEvalIO' r db (Free (ReadOp k)) = runEvalIO' r db $ k r
     runEvalIO' r db (Free (StateGetOp k)) = do 
-      res <- readDB db
+      res <- readDB db -- state is in IO, so no need to append to params
       case res of
         Left err -> pure $ Left err
         Right dbState -> runEvalIO' r db (k dbState)
@@ -75,7 +75,7 @@ runEvalIO evalm = do
       runEvalIO' r db m
  
     runEvalIO' r db (Free (PrintOp p m)) = do
-      putStrLn p
+      putStrLn p -- print to IO...no need to append to the params.
       runEvalIO' r db m
     runEvalIO' _ _ (Free (ErrorOp e)) = pure $ Left e
     runEvalIO' r db (Free (TryCatchOp m1 m2)) = do
@@ -103,13 +103,66 @@ runEvalIO evalm = do
           let dbState' = (key, val) : filter ((/= key) . fst) dbState
           writeDB db dbState'
           runEvalIO' r db m
+    -- TODO should we consider copyDB failure inside copyDB? because there is a readDB and writeDB
+    runEvalIO' r dbPath (Free (TransactionOp m n)) =
+      withTempDB $ \tempDB -> do
+        copyDB dbPath tempDB
+        res1 <- runEvalIO' r tempDB m
+        case res1 of
+          Left _ -> do
+            runEvalIO' r dbPath n -- nothing happens
+          Right _ -> do
+            copyDB tempDB dbPath -- update to origin db before exiting the withTempDB
+            runEvalIO' r dbPath n
 
--- memory cache version(adding in-mem cache operator?) TODO
--- implement KvPutOp & KvGetOp with StateGetOp and StatePutOp: not sure if it is a better solution
-    -- runEvalIO' r db (Free (KvPutOp key val m)) = do
-      -- res <- runEvalIO' r db (Free (StateGetOp Pure))
-      -- case res of
-      --   Left err -> return $ Left err
-      --   Right dbState -> do
-      --     let dbState' = (key, val) : filter ((/= key) . fst) dbState
-      --     runEvalIO' r db (Free (StatePutOp dbState' m))
+    -- modifying the db with reading every time: not a good idea...
+    -- runEvalIO' r dbPath (Free (TransactionOp m n)) =
+    --   withTempDB $ \tempDB -> do
+    --     copyDB dbPath tempDB
+    --     stateres <- readDB tempDB
+    --     case stateres of
+    --       Left err -> pure $ Left err -- should never reach here
+    --       Right _ -> do
+    --         res1 <- runEvalIO' r tempDB m
+    --         case res1 of
+    --           Left _ -> do
+    --             runEvalIO' r dbPath n -- nothing happens
+    --           Right _ -> do
+    --             stateres2 <- readDB tempDB -- tempDB should be updated, so state updated
+    --             case stateres2 of
+    --               Left err -> pure $ Left err -- should never reach here
+    --               Right _ -> do
+    --                 copyDB tempDB dbPath -- update to origin db before exiting the withTempDB
+    --                 runEvalIO' r dbPath n
+
+    -- runEvalIO' r s dbPath (Free (TransactionOp m n)) = 
+    --   withTempDB $ \tempDB -> do 
+    --     copyDB dbPath tempDB 
+    --     stateres <- readDB tempDB
+    --     case restateress of
+    --       Left err -> pure $ Left err -- should never reach here?
+    --       Right state1 -> do 
+    --         res1 <- runEvalIO' r state1 tempDB m -- modify state
+    --         case res1 of
+    --           Right _ -> do
+    --             stateres2 <- readDB tempDB
+    --             case stateres2 of
+    --                 Left err -> pure $ Left err
+    --                 Right state2 -> do 
+    --                   res2 <- runEvalIO' r state2 tempDB n -- modify state
+    --                   pure res2
+    --           Left _ -> do -- nothing happend in state, but still a tempDB
+    --             res2 <- runEvalIO' r s tempDB n
+    --             pure res2
+
+
+-- FutureTODO memory cache version(adding in-mem cache operator?)
+-- TODO not sure if it is a better solution: 
+  -- implement KvPutOp & KvGetOp with StateGetOp and StatePutOp: 
+      -- runEvalIO' r db (Free (KvPutOp key val m)) = do
+        -- res <- runEvalIO' r db (Free (StateGetOp Pure))
+        -- case res of
+        --   Left err -> return $ Left err
+        --   Right dbState -> do
+        --     let dbState' = (key, val) : filter ((/= key) . fst) dbState
+        --     runEvalIO' r db (Free (StatePutOp dbState' m))

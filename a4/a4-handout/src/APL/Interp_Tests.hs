@@ -70,7 +70,7 @@ pureTests =
 
 ioTests :: TestTree
 ioTests =
-  testGroup -- TODO implement some pure interpreter?
+  testGroup
     "IO interpreter"
     [ testCase "print" $ do
         let s1 = "Lalalalala"
@@ -178,5 +178,27 @@ ioTests =
         testCase "Pure-transaction X transaction print: bad but continue printing, and no state change" $
             let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
             in (runEval $ transaction badPut >> evalPrint "weee" >> transaction badPut >> evalPrint "arr" >> transaction badPut >> evalKvGet (ValInt 0))
-            @?= (["weee","arr"],Left "Key not found: ValInt 0")
+            @?= (["weee","arr"],Left "Key not found: ValInt 0"),
+        testCase "IO-bad transaction indie and missing key println" $ do
+            let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+            (out, res) <-
+              captureIO ["xx"] $
+                runEvalIO $ 
+                  transaction badPut >> evalPrint "weee" >> transaction badPut >> evalPrint "arr" >> transaction badPut >> evalKvGet (ValInt 0)
+            (out, res) @?= (["weee","arr","Invalid key: ValInt 0. Enter a replacement: "],Left "Invalid value input: xx"),
+        testCase "IO-bad transaction inside print and missing key println" $ do
+            let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+            (out, res) <-
+              captureIO ["xx"] $
+                runEvalIO $ 
+                  transaction (badPut >> evalPrint "weee" >> badPut >> evalPrint "arr" >> badPut) >> evalKvGet (ValInt 0)
+            (out, res) @?= (["Invalid key: ValInt 0. Enter a replacement: "],Left "Invalid value input: xx"),
+        testCase "IO-good transaction and update the database" $ do
+            let goodPut0 = evalKvPut (ValInt 0) (ValBool False)
+                goodPut1 = evalKvPut (ValInt 1) (ValBool True)
+            (out, res) <-
+              captureIO ["xx"] $
+                runEvalIO $ 
+                  transaction (goodPut0 >> evalPrint "weee" >> goodPut1 >> evalPrint "arr") >> getState
+            (out, res) @?= (["weee", "arr"], Right [(ValInt 1,ValBool True),(ValInt 0,ValBool False)])
     ]
