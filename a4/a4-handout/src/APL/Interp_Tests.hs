@@ -92,13 +92,16 @@ ioTests =
                    Print "This is 1" $
                      CstInt 1
            (out, res) @?= (["This is 1: 1", "This is also 1: 1"], Right $ ValInt 1),
-        testCase "catch-failure-on-exp1" $ do
+        testCase "Pure-catch-failure-on-exp1" $ 
+            (runEval $ do catch (failure "Oh no!") (pure "Success!"))
+            @?= ([],Right "Success!"),
+        testCase "IO-catch-failure-on-exp1" $ do
            (out, res) <-
              captureIO [] $
                runEvalIO $ do -- expected EvalM Val, aka EvalOp (Free EvalOp Val)  by type EvalM a = Free EvalOp a
                   catch (failure "Oh no!") (pure "Success!")
            (out, res) @?= ([],Right "Success!"),
-        testCase "trycatch-failure-on-exp1" $ do
+        testCase "IO-trycatch-failure-on-exp1" $ do
            let badEql = CstInt 0 `Eql` CstBool True
                divZero = CstInt 1 `Div` CstInt 0
            (out, res) <-
@@ -106,14 +109,21 @@ ioTests =
                evalIO' $ 
                  TryCatch badEql divZero
            (out, res) @?= ([], Left "Division by zero"),
-        testCase "trycatch-succeed-on-exp1" $ do
+        testCase "IO-trycatch-succeed-on-exp1" $ do
            let divZero = CstInt 1 `Div` CstInt 0
            (out, res) <-
              captureIO [] $
                evalIO' $ 
                  TryCatch (CstInt 5) divZero
            (out, res) @?= ([],Right (ValInt 5)),
-        testCase "kv-vanilla: kv is a k-ranged operation" $ do
+        testCase "Pure-kv-vanilla: kv is a k-ranged operation" $
+           let put0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
+               put1 m = Free $ KvPutOp (ValInt 1) (ValInt 2) m
+               put2 m = Free $ KvPutOp (ValInt 0) (ValInt 100) m
+               get0 = Free $ KvGetOp (ValInt 0) $ \val -> pure val
+            in (runEval $ do put0 $ put1 $ put2 $ get0)
+           @?= ([],Right (ValInt 100)),
+        testCase "IO-kv-vanilla: kv is a k-ranged operation" $ do
            let put0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
                put1 m = Free $ KvPutOp (ValInt 1) (ValInt 1) m
                put2 m = Free $ KvPutOp (ValInt 0) (ValInt 100) m
@@ -123,13 +133,13 @@ ioTests =
                runEvalIO $ do 
                  put0 $ put1 $ put2 $ get0
            (out, res) @?= ([],Right (ValInt 100)),
-        testCase "state-vanilla: state is a global-ranged operation" $ do
+        testCase "IO-state-vanilla: state is a global-ranged operation" $ do
            (out, res) <-
              captureIO [] $
                runEvalIO $ do 
                   Free $ StatePutOp [(ValInt 10, ValInt 2)] $ Free $ StatePutOp [(ValInt 1, ValInt 2)] $ getState
            (out, res) @?= ([],Right [(ValInt 1,ValInt 2)]),
-        testCase "state X kv, state flush" $ do
+        testCase "IO-state X kv, state flush" $ do
            let sput0 m = Free $ StatePutOp [(ValInt 0, ValInt 2)] m
                kput0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
                sput1 m = Free $ StatePutOp [(ValBool True, ValInt 2)] m
@@ -138,47 +148,35 @@ ioTests =
                runEvalIO $ do 
                   sput0 $ kput0 $ sput1 $ getState
            (out, res) @?= ([],Right [(ValBool True,ValInt 2)]),
-        testCase "Missing key Founded" $ do
+        testCase "IO-Missing key Founded" $ do
             (_, res) <-
               captureIO ["ValInt 1"] $
                 runEvalIO $
                   Free $ StatePutOp [(ValInt 1, ValInt 2)] $ 
                     Free $ KvGetOp (ValInt 0) $ \val -> pure val
             res @?= Right (ValInt 2),
-        testCase "Missing key Not Found" $ do
+        testCase "IO-Missing key Not Found" $ do
             (_, res) <-
               captureIO ["xx"] $
                 runEvalIO $
                   Free $ StatePutOp [(ValInt 1, ValInt 2)] $ 
                     Free $ KvGetOp (ValBool False) $ \val -> pure val
             res @?= Left "Invalid value input: xx",
-        testCase "transaction-vanilla-good" $ do
+        testCase "Pure-transaction-vanilla-good" $
             let goodPut = evalKvPut (ValInt 0) (ValInt 1)
                 get0    = KvGet (CstInt 0)
-            (out, res) <-
-              captureIO [] $
-                runEvalIO $
-                  transaction goodPut >> eval get0
-            (out, res) @?= ([], Right (ValInt 1)),
-        testCase "transaction-vanilla-bad" $ do
+            in (runEval $ transaction goodPut >> eval get0)
+            @?= ([], Right (ValInt 1)),
+        testCase "Pure-transaction-vanilla-bad" $
             let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
                 get0    = KvGet (CstInt 0)
-            (out, res) <-
-              captureIO [] $
-                runEvalIO $
-                  transaction badPut >> eval get0
-            (out, res) @?= ([], Left "Key not found: ValInt 0"),
-        testCase "transaction-vanilla-print" $ do
-            (out, res) <-
-              captureIO [] $
-                runEvalIO $
-                  transaction (evalPrint "weee" >> evalPrint "arr" >> evalPrint "woof" >> failure "oh shit")
-            (out, res) @?= (["weee", "arr", "woof"],Right ()),
-        testCase "transaction X transaction print: bad but continue printing, and no state change" $ do
+            in (runEval $ transaction badPut >> eval get0)
+            @?= ([], Left "Key not found: ValInt 0"),
+        testCase "Pure-transaction-vanilla-print" $ 
+            (runEval $ transaction $ evalPrint "weee" >> evalPrint "arr" >> evalPrint "woof" >> failure "oh shit")
+            @?= (["weee", "arr", "woof"],Right ()),
+        testCase "Pure-transaction X transaction print: bad but continue printing, and no state change" $
             let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
-            (out, res) <-
-              captureIO [] $
-                runEvalIO $
-                  transaction badPut >> evalPrint "weee" >> transaction badPut >> evalPrint "arr" >> transaction badPut >> evalKvGet (ValInt 0)
-            (out, res) @?= (["weee","arr"],Left "Key not found: ValInt 0")
+            in (runEval $ transaction badPut >> evalPrint "weee" >> transaction badPut >> evalPrint "arr" >> transaction badPut >> evalKvGet (ValInt 0))
+            @?= (["weee","arr"],Left "Key not found: ValInt 0")
     ]
