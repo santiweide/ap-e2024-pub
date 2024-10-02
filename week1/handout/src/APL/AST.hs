@@ -25,16 +25,20 @@ data Exp
     | Let VName Exp Exp
     | Lambda VName Exp
     | Apply Exp Exp
+    | TryCatch Exp Exp
     deriving (Eq, Show)
 
 data Val
     = ValInt Integer
     | ValBool Bool
-    | ValFun Env VName Exp
+    | ValFun Env VName Exp -- here we could have a exp in a Val <3~~~
   deriving (Eq, Show)
 
 -- data Either a b = Left a
 --                 | Right b
+
+
+
 
 type Error = String
 
