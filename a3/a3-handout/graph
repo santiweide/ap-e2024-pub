@@ -1,42 +1,43 @@
-string ::= just string
-var ::= some special string
-
-Exp ::= FExp LExp Exp0'
+Atom ::= var
+        |int
+        |bool
+        |“(”Exp“)”
 
 FExp ::= Atom FExp'
-FExp' ::= (* empty *)
+FExp' ::= (*empty*) 
         | Atom FExp'
 
-LExp ::= (* empty *)
-       | "if" Exp "then" Exp "else" Exp
-       | "\" var "->" Exp
-       | "try" Exp "catch" Exp
-       | "let" var "=" Exp "in" Exp
+LExp ::= FExp
+       | “if” Exp “then” Exp “else” Exp
+       | “\” var “->” Exp
+       | “try” Exp “catch” Exp
+       | “let” var “=” Exp “in” Exp
+       | “print” string Atom
+       | “get” Atom
+       | “put” Atom Atom
 
-Exp0' ::= Exp3 Exp2 Exp1 Exp0
+Exp ::= Exp2 Exp1 Exp0 Exp00
 
-Exp3 ::= Atom Exp3'
-Exp3' ::= (* empty *)
-        | "**" Atom Exp3'
 
-Exp2 ::= Atom Exp2'
-Exp2' ::= (* empty *)
-        | "*" Atom Exp2'
-        | "/" Atom Exp2'
+Exp2 ::= LExp Exp2'
 
-Exp1 ::= Atom Exp1'
-Exp1' ::= (* empty *)
-        | "+" Atom Exp1'
-        | "-" Atom Exp1'
+Exp2' ::= “**” LExp Exp2'
+        | (* empty *)
 
-Exp0 ::= Atom Exp0'
-Exp0' ::= (* empty *)
-        | "==" Atom Exp0'
+Exp1 ::= “*” Exp2 Exp1
+        | “/” Exp2 Exp1
+        | (* empty *)
 
-Atom ::= var
-       | int
-       | bool
-       | "(" Exp ")"
-       | "get" Atom 
-       | "put" Atom Atom
-       | "print" string Atom
+Exp0 ::= “+” Exp1 Exp0
+        | “-” Exp1 Exp0
+        | (* empty *)
+
+Exp00 ::= “==” Exp0 Exp00
+        | (* empty *)
+
+
+--a trick: 如果是不知道写啥可以先用Atom替代，后面用recursive case来验证（尤其是优先级）
+--验证的时候，并不是所有的分支都是有效的？可以允许无效的分支，毕竟是choice
+-- 一点作业感悟：有时候看完整个文档会对当前问题产生更多理解呢，不要着急解决specific的问题，而是看下整体的意图。
+-- 就像现实生活中的需求一样，一个小问题总是为了整体的解决服务的。
+

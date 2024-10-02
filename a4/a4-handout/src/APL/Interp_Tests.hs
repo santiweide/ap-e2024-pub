@@ -95,6 +95,10 @@ ioTests =
         testCase "Pure-catch-failure-on-exp1" $ 
             (runEval $ do catch (failure "Oh no!") (pure "Success!"))
             @?= ([],Right "Success!"),
+        testCase "Pure-m1m2-invisible" $ 
+            let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+            in  (runEval $ (Free $ TryCatchOp (badPut) (evalPrint "doing m2") ) >> getState)
+            @?= (["doing m2"],Right []),
         testCase "IO-catch-failure-on-exp1" $ do
            (out, res) <-
              captureIO [] $
@@ -116,6 +120,20 @@ ioTests =
                evalIO' $ 
                  TryCatch (CstInt 5) divZero
            (out, res) @?= ([],Right (ValInt 5)),
+        testCase "IO-trycatch-m1 m2 visible" $ do
+           let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+           (out, res) <-
+             captureIO [] $
+                 runEvalIO $ 
+                  (Free $ TryCatchOp (badPut) (evalPrint "doing m2") ) >> getState
+           (out, res) @?= (["doing m2"],Right [(ValInt 0,ValBool False)]),
+        testCase "IO-trycatch-m1 m2 invisible-transaction" $ do
+           let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+           (out, res) <-
+             captureIO [] $
+                 runEvalIO $ 
+                  (Free $ TryCatchOp (transaction badPut ) (transaction (evalPrint "doing m2") ) ) >> getState
+           (out, res) @?= ([],Right []),
         testCase "Pure-kv-vanilla: kv is a k-ranged operation" $
            let put0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
                put1 m = Free $ KvPutOp (ValInt 1) (ValInt 2) m
@@ -154,7 +172,7 @@ ioTests =
                 runEvalIO $
                   Free $ StatePutOp [(ValInt 1, ValInt 2)] $ 
                     Free $ KvGetOp (ValInt 0) $ \val -> pure val
-            res @?= Right (ValInt 2),
+            res @?= Right (ValInt 1),
         testCase "IO-Missing key Not Found" $ do
             (_, res) <-
               captureIO ["xx"] $

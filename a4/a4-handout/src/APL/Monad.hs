@@ -69,7 +69,25 @@ instance (Functor e) => Monad (Free e) where
   Free g >>= f = Free $ h <$> g
     where
       h x = x >>= f
+-- (Free $ TryCatchOp (transaction badPut) (evalPrint "doing m2")  >> get0)
 
+-- Free $ h <$> TryCatchOp (transaction badPut) (evalPrint "doing m2")
+-- where h x = x >>= get0
+
+-- Free $ TryCatchOp (h transaction badPut) (h evalPrint "doing m2")
+
+-- Free $ TryCatchOp (transaction badPut >>= get0) (evalPrint "doing m2"  >>= get0)
+
+-- Free $ TryCatchOp (transaction badPut >>= get0) (evalPrint "doing m2"  >>= get0)
+-- !!!!
+-- (Free $ TryCatchOp (transaction badPut >> get0) (evalPrint "doing m2" >> get0))
+-- 
+-- Free EvalOp () >>= EvalM Val -- also a (Free EvalOp Val)
+-- g :: EvalOp()
+-- f :: EvalM Val, get0
+-- Free $ h <$> g 
+-- Free $ TransactionOp m (h a) = Free $ TransactionOp m (a >>= get0)
+-- where h x = x >>= f
 data EvalOp a
   = ReadOp (Env -> a)
   | StateGetOp (State -> a)
@@ -131,7 +149,7 @@ evalKvGet :: Val -> EvalM Val
 evalKvGet key = Free $ KvGetOp key pure
 
 evalKvPut :: Val -> Val -> EvalM ()
-evalKvPut key val = Free $ KvPutOp key val (pure ())
+evalKvPut key val = Free $ KvPutOp key val $ pure ()
 
 transaction :: EvalM () -> EvalM ()
 transaction e = Free $ TransactionOp e $ pure ()

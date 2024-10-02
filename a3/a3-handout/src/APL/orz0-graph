@@ -1,0 +1,17 @@
+var ::= ? one or more alphabetic characters ? ;
+
+Atom ::= "true"
+        | "false"
+        | var
+        | "not" BExp ;
+
+BExp1' ::= "and" Atom BExp1'
+        | ;
+
+
+
+BExp0' ::= "or" Atom BExp0'
+        | ;
+BExp0 ::= Atom BExp1' BExp0' ;
+
+BExp ::= BExp0 ;

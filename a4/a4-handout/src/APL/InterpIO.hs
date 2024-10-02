@@ -81,7 +81,7 @@ runEvalIO evalm = do
     runEvalIO' r db (Free (TryCatchOp m1 m2)) = do
       res <- runEvalIO' r db m1
       case res of
-        Left _ -> runEvalIO' r db m2
+        Left _ -> runEvalIO' r db m2 -- TODO need to roll back if res1 failed, should we modify it?
         Right val -> pure $ Right val
     runEvalIO' r db (Free (KvGetOp key k)) = do
       res <- readDB db
@@ -93,7 +93,7 @@ runEvalIO evalm = do
             input <- prompt ("Invalid key: " ++ show key ++ ". Enter a replacement: ")
             let readval = readVal input -- deserialize
             case readval of
-              Just key' -> runEvalIO' r db (Free (KvGetOp key' k))
+              Just val -> runEvalIO' r db $ k val
               Nothing -> pure $ Left $ "Invalid value input: " ++ input
     runEvalIO' r db (Free (KvPutOp key val m)) = do
       res <- readDB db

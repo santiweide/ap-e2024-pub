@@ -1,0 +1,74 @@
+Atom ::= var
+    |int
+    |bool
+    |(Exp) 
+    
+FExp ::= Atom
+    | FExp FExp
+
+LExp ::= FExp
+    | if Exp then Exp else Exp LExp
+    | \ var -> Exp
+    | try Exp catch Exp
+    | let var = Exp in Exp
+
+Exp ::= LExp
+    ｜ Exp + Exp
+    ｜ Exp - Exp
+    ｜ Exp * Exp 
+    ｜ Exp / Exp
+    | Exp == Exp
+    | Exp ** Exp
+    | print string Atom
+    | get Atom
+    | put Atom Atom
+
+-- is this a correct one?
+-- by the given formula:
+
+Atom ::= var
+    |int
+    |bool
+    |(Exp) 
+
+FExp ::= Atom FExp'
+FExp' = FExp FExp'
+    | (* empty *)
+
+Exp ::= LExp Exp'
+    | print string Atom Exp'
+    | get Atom Exp'
+    | put Atom Atom Exp'
+
+Exp' = (* empty *) 
+    | + Exp Exp'
+    ｜ - Exp Exp'
+    ｜ * Exp Exp'
+    ｜ / Exp Exp'
+    | == Exp Exp'
+    | ** Exp Exp'
+
+Atom ::= var
+       | int
+       | bool
+       | "(" Exp ")"
+
+Exp0' ::= (* empty *)
+        | "+" Atom Exp0'
+        | "-" Atom Exp0'
+        | "*" Atom Exp0'
+        | "/" Atom Exp0'
+
+Exp0 ::= Atom Exp0'
+
+Exp  ::= Exp0
+
+LExp ::= FExp LExp'
+    | \ var -> Exp LExp'
+    | try Exp catch Exp LExp'
+    | let var = Exp in Exp LExp'
+
+LExp' = (* empty *) 
+    | if Exp then Exp else Exp LExp'
+
+
