@@ -69,6 +69,7 @@ varLenWithin :: Int -> Int -> VName -> Bool
 varLenWithin  lower upper varname = let len = length varname in 
     and [(lower <= len), (len <= upper)] 
 
+-- low+1) (upper+1
 varLenWithout :: Int -> Int -> VName -> Bool
 varLenWithout  lower upper varname = let len = length varname in 
     or [(lower > len), (len > upper)] 
@@ -79,37 +80,50 @@ genVarWithLenRule = do
     alphaNums <- suchThat (listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']) (varLenWithin 1 3)
     pure (alpha : alphaNums)
 
-genVarWithoutLenRule :: Gen VName
+genVarWithoutLenRule ::  Gen VName
 genVarWithoutLenRule = do
     alpha <-elements ['a' .. 'z']
     alphaNums <- suchThat (listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']) (varLenWithout 1 3)
     pure (alpha : alphaNums)
 
+
+
+
+
+
+
+-- what is the ceiling?
 -- How to control the percent...
 genExp :: Int -> [VName] -> Gen Exp
 genExp 0 _ = oneof [CstInt <$> arbitrary, CstBool <$> arbitrary]
-genExp size vars = -- 15 all 14*3
+genExp size vars = -- let  1/(14+20*k) = X = P(CstInt) = P(CstBool) = P(Lambda) ... 5/8<X<1
   frequency $
-    [ (1, CstInt <$> arbitrary)
-    , (1, CstBool <$> arbitrary)
-    , (1, Add <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (1, Sub <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (1, Mul <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (1, Div <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (1, Pow <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (1, Eql <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (1, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars)
-    , (30, Var <$> suchThat genVarWithLenRule (`notElem` vars))
-    , (30, Var <$> suchThat genVarWithoutLenRule  (`notElem` vars)) -- 80% percent get out of scope
-    , (0 * (length vars), Var <$> elements vars) -- in scope
-    , (1, Apply <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (1, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars) 
-    , (1, do
-        newVar <- genVar
-        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars))
-    , (1, do
-        newVar <- genVar
-        Lambda newVar <$> genExp (size - 1) (newVar : vars))
+    [ (100, CstInt <$> arbitrary) -- 0% error -- P(genExp is CstInt)=100/sum, sum = 100*13 + 100 + 2000*(length) = 1/(14+20*k)
+    , (100, CstBool <$> arbitrary) -- 0% error -- P(genExp is CstBool) = 1/(41+20*k)
+    , (100, Add <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2 = 1-X^2
+    , (100, Sub <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2 = 1-X^2
+    , (100, Mul <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2
+    , (100, Div <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2, P(domain) = P(second CstInt is 0|no type err) = P(second CstInt is 0)/P(no type err) = P(value is CstInt 0)/P(CstInt)
+    , (100, Pow <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2, P(domain) = P(second CstInt < 0|no type err) = P(second CstInt < 0)/P(no type err) =  P(value < CstInt 0)/P(CstInt)
+    , (100, Eql <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)*P(genExp is CstInt) - P(genExp is CstBool)*P(genExp is Bool)=1-2/(41+20*k)^2
+    , (100, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars) -- P(type err) = P(fst gen is not CstBool) = 1 - P(CstBool)
+    , (50, Var <$>  genVarWithLenRule ) -- P(occur) = 1/2/(14+20*k) = y*X
+    , (50, Var <$>  genVarWithoutLenRule) -- P(occur) = 1/2/(14+20*k) = y*X
+    , (2000 * (length vars), Var <$> elements vars) -- 0% error ,avoiding coming into the elements [], and en-larging the probability as the case increases. but still could not be a must
+    , (100, Apply <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = P(fst is not a function) = 1-P(lambda)
+    , (2000, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars) -- P(err) = P(genExp has err), like an Amplifier
+    , (100, do
+        newVar <- genVarWithLenRule
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error
+    , (100, do
+        newVar <- genVarWithoutLenRule
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error
+    , (100, do
+        newVar <- genVarWithLenRule
+        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X
+    , (100, do
+        newVar <- genVarWithoutLenRule
+        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X
     ]
   where
     halfSize = size `div` 2
