@@ -20,6 +20,7 @@ import Test.QuickCheck
   , elements
   , listOf
   , frequency
+  , suchThat
   )
 
 
@@ -58,12 +59,25 @@ genVar = do
     alphaNums <- listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']
     pure (alpha : alphaNums)
 
+varNameWithin :: Int -> Int -> VName -> Bool
+varNameWithin  lower upper varname = let len = length varname in 
+    and [(lower <= len), (len <= upper)] 
+
+
+genVarWithLenRule :: Gen VName
+genVarWithLenRule = do
+    alpha <- elements ['a' .. 'z']
+    alphaNums <- suchThat (listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']) (varNameWithin 1 3)
+    pure (alpha : alphaNums)
+
 -- TODO Gen [VName] or [Gen VName], which is better?
 genVarMany :: Int -> [Gen VName]
-genVarMany 0 = genVar:[pure []]
+genVarMany 0 = [pure []]
 genVarMany size = let var = genVar in (var : (genVarMany (size - 1)))
 
 
+-- maintain a list of VName and use them
+-- should we control stricly ? ot just assume all the let are out of scope?
 
 -- TODO how to guarantee size of [VName] equals Int?
 -- how to add things into [] using Int? 
@@ -83,20 +97,26 @@ genExp size vars = -- TODO how to generate frequence using generate~~~ and eleme
     , (4, Pow <$> genExp halfSize vars <*> genExp halfSize vars)
     , (3, Eql <$> genExp halfSize vars <*> genExp halfSize vars)
     , (3, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars)
-    , (1, Var <$> arbitrary) -- Makes non-trivial variable check 
-    -- building let with existing vars
-    , (2, Let <$> arbitrary <*> genExp halfSize vars  <*> genExp halfSize vars )
-    -- bulding let with not existing vars
+    , (3, Var <$> arbitrary) -- Makes non-trivial variable check, here arbitrary is for String
+    , (3, Var <$> genVarWithLenRule) -- Makes non-trivial variable check, here arbitrary is for String
+    -- bulding let with not existing vars, small % is existinf, depends on the percnet of genVar repeats TODO calculate a bound
     , (2, Let <$> arbitrary <*> genExp halfSize vars  <*> genExp halfSize vars )
     , (2, Lambda <$> arbitrary <*> genExp (size - 1) vars )
     , (2, Apply <$> genExp halfSize vars  <*> genExp halfSize vars )
     , (2, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars ) 
     ]
   where
-    halfSize = size `div` 2
-    thirdSize = size `div` 3
+    halfSize = size `div` 2 -- keep tree balance
+    thirdSize = size `div` 3 -- keep tree balance
     vars = genVarMany size
 
+-- TODO input a [VName], and check if the list is empty.
+-- Existing Strategy:
+-- if empty, gen New Var 
+-- if not empty, use existing Var -- elements with the existing vars
+-- New New Strategy
+-- if empty, gen New Var 
+-- if not empty, use existing Var
 
 expCoverage :: Exp -> Property
 expCoverage e = checkCoverage

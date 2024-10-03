@@ -1,9 +1,10 @@
 module APL.Tests
   ( properties
-  , genExp -- for unit test, delete if no need TODO
+    , expCoverage
   )
 where
 
+import APL.Eval (askEnv)
 import APL.AST (Exp (..), subExp, VName)
 import APL.Error (isVariableError, isDomainError, isTypeError)
 import APL.Check (checkExp)
@@ -20,13 +21,12 @@ import Test.QuickCheck
   , elements
   , listOf
   , frequency
+  , suchThat
   )
 
 
 instance Arbitrary Exp where
-  -- sized for the number of params, 
-  -- rename the genExp with possible assigning of [VName]
-  arbitrary = sized (\n -> genExp n [pure []]) 
+  arbitrary = sized (\n -> genExp n []) 
 
   shrink (Add e1 e2) =
     e1 : e2 : [Add e1' e2 | e1' <- shrink e1] ++ [Add e1 e2' | e2' <- shrink e2]
@@ -52,51 +52,68 @@ instance Arbitrary Exp where
     e1 : e2 : [TryCatch e1' e2 | e1' <- shrink e1] ++ [TryCatch e1 e2' | e2' <- shrink e2]
   shrink _ = []
 
+
 genVar :: Gen VName
 genVar = do
     alpha <- elements ['a' .. 'z']
     alphaNums <- listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']
     pure (alpha : alphaNums)
 
--- TODO Gen [VName] or [Gen VName], which is better?
-genVarMany :: Int -> [Gen VName]
-genVarMany 0 = genVar:[pure []]
-genVarMany size = let var = genVar in (var : (genVarMany (size - 1)))
+genVarWithOut :: [VName] -> Gen VName
+genVarWithOut env = do
+    alpha <- elements ['a' .. 'z']
+    alphaNums <- elements env
+    pure (alpha : alphaNums)
 
+varLenWithin :: Int -> Int -> VName -> Bool
+varLenWithin  lower upper varname = let len = length varname in 
+    and [(lower <= len), (len <= upper)] 
 
+varLenWithout :: Int -> Int -> VName -> Bool
+varLenWithout  lower upper varname = let len = length varname in 
+    or [(lower > len), (len > upper)] 
 
--- TODO how to guarantee size of [VName] equals Int?
--- how to add things into [] using Int? 
--- maybe we should control how the vars are generated? or just take top size of the vars in the where
-genExp :: Int -> [Gen VName] -> Gen Exp
--- no matter how many vars are there,
--- as long as size=0 there are only 2 choices
-genExp 0 vars = oneof [CstInt <$> arbitrary, CstBool <$> arbitrary] 
-genExp size vars = -- TODO how to generate frequence using generate~~~ and elements~~~?
-  frequency
-    [ (4, CstInt <$> arbitrary)
-    , (3, CstBool <$> arbitrary)
-    , (5, Add <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (5, Sub <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (5, Mul <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (4, Div <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (4, Pow <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (3, Eql <$> genExp halfSize vars <*> genExp halfSize vars)
-    , (3, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars)
-    , (1, Var <$> arbitrary) -- Makes non-trivial variable check 
-    -- building let with existing vars
-    , (2, Let <$> arbitrary <*> genExp halfSize vars  <*> genExp halfSize vars )
-    -- bulding let with not existing vars
-    , (2, Let <$> arbitrary <*> genExp halfSize vars  <*> genExp halfSize vars )
-    , (2, Lambda <$> arbitrary <*> genExp (size - 1) vars )
-    , (2, Apply <$> genExp halfSize vars  <*> genExp halfSize vars )
-    , (2, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars ) 
+genVarWithLenRule :: Gen VName
+genVarWithLenRule = do
+    alpha <- elements ['a' .. 'z']
+    alphaNums <- suchThat (listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']) (varLenWithin 1 3)
+    pure (alpha : alphaNums)
+
+genVarWithoutLenRule :: Gen VName
+genVarWithoutLenRule = do
+    alpha <-elements ['a' .. 'z']
+    alphaNums <- suchThat (listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']) (varLenWithout 1 3)
+    pure (alpha : alphaNums)
+
+-- How to control the percent...
+genExp :: Int -> [VName] -> Gen Exp
+genExp 0 _ = oneof [CstInt <$> arbitrary, CstBool <$> arbitrary]
+genExp size vars = -- 15 all 14*3
+  frequency $
+    [ (1, CstInt <$> arbitrary)
+    , (1, CstBool <$> arbitrary)
+    , (1, Add <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (1, Sub <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (1, Mul <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (1, Div <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (1, Pow <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (1, Eql <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (1, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars)
+    , (30, Var <$> suchThat genVarWithLenRule (`notElem` vars))
+    , (30, Var <$> suchThat genVarWithoutLenRule  (`notElem` vars)) -- 80% percent get out of scope
+    , (0 * (length vars), Var <$> elements vars) -- in scope
+    , (1, Apply <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (1, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars) 
+    , (1, do
+        newVar <- genVar
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars))
+    , (1, do
+        newVar <- genVar
+        Lambda newVar <$> genExp (size - 1) (newVar : vars))
     ]
   where
     halfSize = size `div` 2
     thirdSize = size `div` 3
-    vars = genVarMany size
-
 
 expCoverage :: Exp -> Property
 expCoverage e = checkCoverage

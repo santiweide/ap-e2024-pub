@@ -3,6 +3,7 @@ module APL.Eval
     Env,
     eval,
     runEval,
+    askEnv
   )
 where
 
