@@ -86,17 +86,9 @@ genVarWithoutLenRule = do
     alphaNums <- suchThat (listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']) (varLenWithout 1 3)
     pure (alpha : alphaNums)
 
-
-
-
-
-
-
--- what is the ceiling?
--- How to control the percent...
 genExp :: Int -> [VName] -> Gen Exp
 genExp 0 _ = oneof [CstInt <$> arbitrary, CstBool <$> arbitrary]
-genExp size vars = -- let  1/(14+20*k) = X = P(CstInt) = P(CstBool) = P(Lambda) ... 5/8<X<1
+genExp size vars = -- let  1/(14+20*k) = X = P(CstInt) = P(CstBool) = P(Lambda)
   frequency $
     [ (100, CstInt <$> arbitrary) -- 0% error -- P(genExp is CstInt)=100/sum, sum = 100*13 + 100 + 2000*(length) = 1/(14+20*k)
     , (100, CstBool <$> arbitrary) -- 0% error -- P(genExp is CstBool) = 1/(41+20*k)
@@ -114,16 +106,16 @@ genExp size vars = -- let  1/(14+20*k) = X = P(CstInt) = P(CstBool) = P(Lambda) 
     , (2000, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars) -- P(err) = P(genExp has err), like an Amplifier
     , (100, do
         newVar <- genVarWithLenRule
-        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error, keep balance
     , (100, do
         newVar <- genVarWithoutLenRule
-        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error, keep balance
     , (100, do
         newVar <- genVarWithLenRule
-        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X
+        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X, keep balance
     , (100, do
         newVar <- genVarWithoutLenRule
-        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X
+        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X, keep balance
     ]
   where
     halfSize = size `div` 2
