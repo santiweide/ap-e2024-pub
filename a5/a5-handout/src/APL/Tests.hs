@@ -19,6 +19,7 @@ import Test.QuickCheck
   , sized
   , elements
   , listOf
+  , frequency
   )
 
 
@@ -62,6 +63,8 @@ genVarMany :: Int -> [Gen VName]
 genVarMany 0 = genVar:[pure []]
 genVarMany size = let var = genVar in (var : (genVarMany (size - 1)))
 
+
+
 -- TODO how to guarantee size of [VName] equals Int?
 -- how to add things into [] using Int? 
 -- maybe we should control how the vars are generated? or just take top size of the vars in the where
@@ -69,22 +72,25 @@ genExp :: Int -> [Gen VName] -> Gen Exp
 -- no matter how many vars are there,
 -- as long as size=0 there are only 2 choices
 genExp 0 vars = oneof [CstInt <$> arbitrary, CstBool <$> arbitrary] 
-genExp size vars =
-  oneof
-    [ CstInt <$> arbitrary
-    , CstBool <$> arbitrary
-    , Add <$> genExp halfSize vars <*> genExp halfSize vars
-    , Sub <$> genExp halfSize vars <*> genExp halfSize vars 
-    , Mul <$> genExp halfSize vars <*> genExp halfSize vars 
-    , Div <$> genExp halfSize vars <*> genExp halfSize vars 
-    , Pow <$> genExp halfSize vars <*> genExp halfSize vars 
-    , Eql <$> genExp halfSize vars <*> genExp halfSize vars 
-    , If <$> genExp thirdSize vars <*> genExp thirdSize vars  <*> genExp thirdSize vars 
-    , Var <$> arbitrary
-    , Let <$> arbitrary <*> genExp halfSize vars  <*> genExp halfSize vars 
-    , Lambda <$> arbitrary <*> genExp (size - 1) vars 
-    , Apply <$> genExp halfSize vars  <*> genExp halfSize vars 
-    , TryCatch <$> genExp halfSize vars <*> genExp halfSize vars 
+genExp size vars = -- TODO how to generate frequence using generate~~~ and elements~~~?
+  frequency
+    [ (4, CstInt <$> arbitrary)
+    , (3, CstBool <$> arbitrary)
+    , (5, Add <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (5, Sub <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (5, Mul <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (4, Div <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (4, Pow <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (3, Eql <$> genExp halfSize vars <*> genExp halfSize vars)
+    , (3, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars)
+    , (1, Var <$> arbitrary) -- Makes non-trivial variable check 
+    -- building let with existing vars
+    , (2, Let <$> arbitrary <*> genExp halfSize vars  <*> genExp halfSize vars )
+    -- bulding let with not existing vars
+    , (2, Let <$> arbitrary <*> genExp halfSize vars  <*> genExp halfSize vars )
+    , (2, Lambda <$> arbitrary <*> genExp (size - 1) vars )
+    , (2, Apply <$> genExp halfSize vars  <*> genExp halfSize vars )
+    , (2, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars ) 
     ]
   where
     halfSize = size `div` 2

@@ -60,7 +60,7 @@ genExp size vars =
   frequency
     [ (4, CstInt <$> arbitrary)
     , (3, CstBool <$> arbitrary)
-    , (2, if null vars then CstInt <$> arbitrary else Var <$> elements vars)
+    , (2, if null vars then CstInt <$> arbitrary else Var <$> elements vars) -- new
     , (5, Add <$> genExp halfSize vars <*> genExp halfSize vars)
     , (5, Sub <$> genExp halfSize vars <*> genExp halfSize vars)
     , (5, Mul <$> genExp halfSize vars <*> genExp halfSize vars)
