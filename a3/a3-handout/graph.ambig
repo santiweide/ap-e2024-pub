@@ -1,0 +1,53 @@
+Atom ::= var
+        |int
+        |bool
+        |“(”Exp“)”
+
+FExp ::= Atom FExp'
+FExp' ::= (*empty*) 
+        | Atom FExp'
+
+LExp ::= FExp
+       | “if” Exp “then” Exp “else” Exp
+       | “\” var “->” Exp
+       | “try” Exp “catch” Exp
+       | “let” var “=” Exp “in” Exp
+       | “print” string Atom
+       | “get” Atom
+       | “put” Atom Atom
+
+
+-- 这里因为有4个并列，所以是有Ambiguity的！
+Exp ::= Exp2 Exp1 Exp0 Exp00
+
+
+Exp2 ::= LExp Exp2'
+
+Exp2' ::= “**” LExp Exp2'
+        | (* empty *)
+
+Exp1 ::= “*” Exp2 Exp1
+        | “/” Exp2 Exp1
+        | (* empty *)
+
+Exp0 ::= “+” Exp1 Exp0
+        | “-” Exp1 Exp0
+        | (* empty *)
+
+Exp00 ::= “==” Exp0 Exp00
+        | (* empty *)
+
+
+
+
+
+
+
+
+
+
+--a trick: 如果是不知道写啥可以先用Atom替代，后面用recursive case来验证（尤其是优先级）
+--验证的时候，并不是所有的分支都是有效的？可以允许无效的分支，毕竟是choice
+-- 一点作业感悟：有时候看完整个文档会对当前问题产生更多理解呢，不要着急解决specific的问题，而是看下整体的意图。
+-- 就像现实生活中的需求一样，一个小问题总是为了整体的解决服务的。
+

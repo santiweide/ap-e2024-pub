@@ -12,28 +12,71 @@ LExp ::= FExp
        | “\” var “->” Exp
        | “try” Exp “catch” Exp
        | “let” var “=” Exp “in” Exp
+
+Exp5 ::= LExp Exp5' -- making precedence between LExp and Exp5'
+
+Exp5' ::= (* empty *)
        | “print” string Atom
        | “get” Atom
        | “put” Atom Atom
 
-Exp ::= Exp2 Exp1 Exp0 Exp00
+Exp4 ::= Exp5 Exp4'
 
-
-Exp2 ::= LExp Exp2'
-
-Exp2' ::= “**” LExp Exp2'
+Exp4' ::= “**” Exp5 Exp4'
         | (* empty *)
 
-Exp1 ::= “*” Exp2 Exp1
-        | “/” Exp2 Exp1
+Exp3 ::= “*” Exp4 Exp3
+        | “/” Exp4 Exp3
         | (* empty *)
 
-Exp0 ::= “+” Exp1 Exp0
-        | “-” Exp1 Exp0
+Exp2 ::= “+” Exp3 Exp2
+        | “-” Exp3 Exp2
         | (* empty *)
 
-Exp00 ::= “==” Exp0 Exp00
+Exp1 ::= “==” Exp2 Exp1
         | (* empty *)
+
+Exp ::= Exp4 Exp3 Exp2 Exp1
+
+--- removing ambiguity:: as long as the exp has more than 2 sub expressions, there would be ambiguity
+-- Ahhhhh finally corrected!!!!AHhhhhhhhhhhh
+Atom ::= var
+        |int
+        |bool
+        |“(”Exp“)”
+FExp ::= Atom FExp'
+FExp' ::= (*empty*) 
+        | Atom FExp'
+LExp ::= FExp
+       | “if” Exp “then” Exp “else” Exp
+       | “\” var “->” Exp
+       | “try” Exp “catch” Exp
+       | “let” var “=” Exp “in” Exp
+Exp5' ::= (* empty *)
+       | “print” string Atom
+       | “get” Atom
+       | “put” Atom Atom
+Exp5 ::= LExp Exp5'
+Exp4' ::= “**” Exp4
+        | (* empty *)
+Exo4 ::= Exp5 Exp4'
+Exp3' ::= “*” Exp3
+        | “/” Exp3
+        | (* empty *)
+Exp3 ::= Exp4 Exp3'
+Exp2' ::= “+” Exp2
+        | “-” Exp2
+        | (* empty *)
+Exp2 ::= Exp3 Exp2'
+Exp1' ::=  “==” Exp1
+        | (* empty *)
+Exp1 ::= Exp2 Exp1'
+Exp := Exp1
+
+
+
+
+
 
 
 --a trick: 如果是不知道写啥可以先用Atom替代，后面用recursive case来验证（尤其是优先级）
