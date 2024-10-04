@@ -88,7 +88,7 @@ genVarWithoutLenRule = do
 
 genExp :: Int -> [VName] -> Gen Exp
 genExp 0 _ = oneof [CstInt <$> arbitrary, CstBool <$> arbitrary]
-genExp size vars = -- let  1/(14+20*k) = X = P(CstInt) = P(CstBool) = P(Lambda)
+genExp size vars = -- let  1/(14+1+20+20*len) = X = P(CstInt) = P(CstBool) = P(Lambda)
   frequency $
     [ (100, CstInt <$> arbitrary) -- 0% error -- P(genExp is CstInt)=100/sum, sum = 100*13 + 100 + 2000*(length) = 1/(14+20*k)
     , (100, CstBool <$> arbitrary) -- 0% error -- P(genExp is CstBool) = 1/(41+20*k)
@@ -133,7 +133,10 @@ expCoverage e = checkCoverage
   $ ()
 
 parsePrinted :: Exp -> Bool
-parsePrinted _ = undefined
+parsePrinted expr =
+  case parse (print expr) of
+    Right parsedExpr -> parsedExpr == expr
+    Left _           -> False
 
 onlyCheckedErrors :: Exp -> Bool
 onlyCheckedErrors _ = undefined
