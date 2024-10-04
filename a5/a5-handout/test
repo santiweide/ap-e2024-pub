@@ -1,1 +1,1 @@
-let a  = 1+1 in let b = 1+2 in a+b
+try (5+false) catch true

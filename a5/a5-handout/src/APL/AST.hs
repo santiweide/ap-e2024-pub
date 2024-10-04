@@ -31,9 +31,10 @@ parens x = "(" ++ x ++ ")"
 printBinOp :: String -> Exp -> Exp -> String
 printBinOp op x y = parens $ printExp x ++ " " ++ op ++ " " ++ printExp y
 
+
 printExp :: Exp -> String
-printExp (CstInt x) = show x
-printExp (CstBool b) = if b then "true" else "false"
+printExp (CstInt x) = parens $ (show x)
+printExp (CstBool b) = parens $ (if b then "true" else "false")
 printExp (Add x y) = printBinOp "+" x y
 printExp (Sub x y) = printBinOp "-" x y
 printExp (Mul x y) = printBinOp "*" x y
@@ -59,10 +60,10 @@ printExp (Let v e1 e2) =
       ++ printExp e2
 printExp (Lambda v body) =
   parens $ "\\" ++ v ++ " -> " ++ printExp body
-printExp (Apply x y) =
+printExp (Apply x y) = parens $
   printExp x ++ " " ++ printExp y
-printExp (TryCatch x y) =
-  "try " ++ printExp x ++ " catch " ++ printExp y
+printExp (TryCatch x y) = parens $ 
+  ("try " ++ printExp x ++ " catch " ++ printExp y)
 
 subExp :: Exp -> [Exp]
 subExp e = e : case e of
