@@ -3,13 +3,11 @@ module APL.Tests
     , expCoverage
   )
 where
-
+import APL.Eval (eval, runEval)
 import APL.Parser (parseAPL, keywords)
-import APL.Eval (askEnv)
 import APL.AST (Exp (..), subExp, VName, printExp)
 import APL.Error (isVariableError, isDomainError, isTypeError)
 import APL.Check (checkExp)
-import Control.Monad (liftM) -- for version of Gen [VName], delete if no need TODO
 import Test.QuickCheck
   ( Property
   , Gen
@@ -53,13 +51,13 @@ instance Arbitrary Exp where
   shrink _ = []
 
 
-genVar :: Gen VName
-genVar = suchThat var (`notElem` keywords)
-  where
-    var = do
-      alpha <- elements ['a' .. 'z']
-      alphaNums <- listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']
-      pure (alpha : alphaNums)
+-- genVar :: Bool -> Gen VName
+-- genVar inside = suchThat var (`notElem` keywords)
+--   where
+--     var = do
+--       alpha <- elements ['a' .. 'z']
+--       alphaNums <- listOf $ elements $ ['a' .. 'z'] ++ ['0' .. '9']
+--       pure (alpha : alphaNums)
 
 varLenWithin :: Int -> Int -> VName -> Bool
 varLenWithin  lower upper varname = let len = length varname in 
@@ -108,7 +106,7 @@ genExp size vars = -- let  1/(14+1+20+20*len) = X = P(CstInt) = P(CstBool) = P(L
     , (50, Var <$>  genVarWithLenRule ) -- P(occur) = 1/2/(14+20*k) = y*X
     , (50, Var <$>  genVarWithoutLenRule) -- P(occur) = 1/2/(14+20*k) = y*X
     , (2000 * (length vars), Var <$> elements vars) -- 0% error ,avoiding coming into the elements [], and en-larging the probability as the case increases. but still could not be a must
-    , (100, Apply <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = P(fst is not a function) = 1-P(lambda)
+    , (100, Apply <$> genNoLambdaBodiedApplyExp halfSize vars <*> genExp halfSize vars) -- P(type err) = P(fst is not a function) = 1-P(lambda)
     , (2000, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars) -- P(err) = P(genExp has err), like an Amplifier
     , (100, do
         newVar <- genVarWithLenRule
@@ -127,6 +125,79 @@ genExp size vars = -- let  1/(14+1+20+20*len) = X = P(CstInt) = P(CstBool) = P(L
     halfSize = size `div` 2
     thirdSize = size `div` 3
 
+
+genNoLambdaBodiedApplyExp :: Int -> [VName] -> Gen Exp
+genNoLambdaBodiedApplyExp 0 _ = oneof [CstInt <$> genUnSignedInt, CstBool <$> arbitrary]
+genNoLambdaBodiedApplyExp size vars = -- let  1/(14+1+20+20*len) = X = P(CstInt) = P(CstBool) = P(Lambda)
+  frequency $
+    [ (100, CstInt <$> genUnSignedInt) -- 0% error -- P(genExp is CstInt)=100/sum, sum = 100*13 + 100 + 2000*(length) = 1/(14+20*k)
+    , (100, CstBool <$> arbitrary) -- 0% error -- P(genExp is CstBool) = 1/(41+20*k)
+    , (100, Add <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2 = 1-X^2
+    , (100, Sub <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2 = 1-X^2
+    , (100, Mul <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2
+    , (100, Div <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2, P(domain) = P(second CstInt is 0|no type err) = P(second CstInt is 0)/P(no type err) = P(value is CstInt 0)/P(CstInt)
+    , (100, Pow <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2, P(domain) = P(second CstInt < 0|no type err) = P(second CstInt < 0)/P(no type err) =  P(value < CstInt 0)/P(CstInt)
+    , (100, Eql <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)*P(genExp is CstInt) - P(genExp is CstBool)*P(genExp is Bool)=1-2/(41+20*k)^2
+    , (100, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars) -- P(type err) = P(fst gen is not CstBool) = 1 - P(CstBool)
+    , (50, Var <$>  genVarWithLenRule ) -- P(occur) = 1/2/(14+20*k) = y*X
+    , (50, Var <$>  genVarWithoutLenRule) -- P(occur) = 1/2/(14+20*k) = y*X
+    , (2000 * (length vars), Var <$> elements vars) -- 0% error ,avoiding coming into the elements [], and en-larging the probability as the case increases. but still could not be a must
+    , (100, Apply <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = P(fst is not a function) = 1-P(lambda)
+    , (2000, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars) -- P(err) = P(genExp has err), like an Amplifier
+    , (100, do
+        newVar <- genVarWithLenRule
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error, keep balance
+    , (100, do
+        newVar <- genVarWithoutLenRule
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error, keep balance
+    , (100, do
+        newVar <- genVarWithLenRule
+        Lambda newVar <$> genNoApplyExp (size - 1) (newVar : vars)) -- P(Lambda) = X, keep balance
+    , (100, do
+        newVar <- genVarWithoutLenRule
+        Lambda newVar <$> genNoApplyExp (size - 1) (newVar : vars)) -- P(Lambda) = X, keep balance
+    ]
+  where
+    halfSize = size `div` 2
+    thirdSize = size `div` 3
+
+
+
+genNoApplyExp :: Int -> [VName] -> Gen Exp
+genNoApplyExp 0 _ = oneof [CstInt <$> genUnSignedInt, CstBool <$> arbitrary]
+genNoApplyExp size vars = -- let  1/(14+1+20+20*len) = X = P(CstInt) = P(CstBool) = P(Lambda)
+  frequency $
+    [ (100, CstInt <$> genUnSignedInt) -- 0% error -- P(genExp is CstInt)=100/sum, sum = 100*13 + 100 + 2000*(length) = 1/(14+20*k)
+    , (100, CstBool <$> arbitrary) -- 0% error -- P(genExp is CstBool) = 1/(41+20*k)
+    , (100, Add <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2 = 1-X^2
+    , (100, Sub <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2 = 1-X^2
+    , (100, Mul <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2
+    , (100, Div <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2, P(domain) = P(second CstInt is 0|no type err) = P(second CstInt is 0)/P(no type err) = P(value is CstInt 0)/P(CstInt)
+    , (100, Pow <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)^2, P(domain) = P(second CstInt < 0|no type err) = P(second CstInt < 0)/P(no type err) =  P(value < CstInt 0)/P(CstInt)
+    , (100, Eql <$> genExp halfSize vars <*> genExp halfSize vars) -- P(type err) = 1-P(genExp is CstInt)*P(genExp is CstInt) - P(genExp is CstBool)*P(genExp is Bool)=1-2/(41+20*k)^2
+    , (100, If <$> genExp thirdSize vars <*> genExp thirdSize vars <*> genExp thirdSize vars) -- P(type err) = P(fst gen is not CstBool) = 1 - P(CstBool)
+    , (50, Var <$>  genVarWithLenRule ) -- P(occur) = 1/2/(14+20*k) = y*X
+    , (50, Var <$>  genVarWithoutLenRule) -- P(occur) = 1/2/(14+20*k) = y*X
+    , (2000 * (length vars), Var <$> elements vars) -- 0% error ,avoiding coming into the elements [], and en-larging the probability as the case increases. but still could not be a must
+    , (2000, TryCatch <$> genExp halfSize vars <*> genExp halfSize vars) -- P(err) = P(genExp has err), like an Amplifier
+    , (100, do
+        newVar <- genVarWithLenRule
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error, keep balance
+    , (100, do
+        newVar <- genVarWithoutLenRule
+        Let newVar <$> genExp halfSize vars <*> genExp halfSize (newVar : vars)) -- no error, keep balance
+    , (100, do
+        newVar <- genVarWithLenRule
+        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X, keep balance
+    , (100, do
+        newVar <- genVarWithoutLenRule
+        Lambda newVar <$> genExp (size - 1) (newVar : vars)) -- P(Lambda) = X, keep balance
+    ]
+  where
+    halfSize = size `div` 2
+    thirdSize = size `div` 3
+
+
 expCoverage :: Exp -> Property
 expCoverage e = checkCoverage
   . cover 20 (any isDomainError (checkExp e)) "domain error"
@@ -140,20 +211,24 @@ expCoverage e = checkCoverage
 
 -- since there is a mask error, also do checkExp in ei when TryCatch e1 e2
 parsePrinted :: Exp -> Bool
-parsePrinted exp = if (checkExp exp) == [] then
-  let printedExp = printExp exp in
+parsePrinted e = if (checkExp e) == [] then
+  let printedExp = printExp e in
     case parseAPL "" printedExp of
-      Right x -> x == exp
+      Right x -> x == e
       Left _ -> False
 else True -- all errors are ignored
 
 onlyCheckedErrors :: Exp -> Bool
-onlyCheckedErrors _ = undefined
+onlyCheckedErrors e =
+  let staticErrors = checkExp e
+  in case (runEval $ eval $ e) of
+    Left runtimeError -> (runtimeError `elem` staticErrors)
+    Right _         -> True
 
 properties :: [(String, Property)]
 properties =
   [ 
-    -- ("parsePrinted", property parsePrinted)
-    -- , ("expCoverage", property expCoverage)
+    ("parsePrinted", property parsePrinted),
+    ("expCoverage", property expCoverage), 
     ("onlyCheckedErrors", property onlyCheckedErrors)
   ]

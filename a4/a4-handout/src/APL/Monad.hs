@@ -69,6 +69,10 @@ instance (Functor e) => Monad (Free e) where
   Free g >>= f = Free $ h <$> g
     where
       h x = x >>= f
+-- evalPrint "First" >> evalPrint "Second"
+-- Free $ PrintOp "First" $ pure () >> Free $ PrintOp "Second" $ pure ()
+-- Free $ PrintOp "First" $ pure () >>= \_ -> Free $ PrintOp "Second" $ pure ()
+  
 -- (Free $ TryCatchOp (transaction badPut) (evalPrint "doing m2")  >> get0)
 
 -- Free $ h <$> TryCatchOp (transaction badPut) (evalPrint "doing m2")
