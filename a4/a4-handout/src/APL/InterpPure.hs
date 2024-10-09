@@ -26,13 +26,19 @@ runEval m = let ((prints, _), res) = runEval' envEmpty [] stateInitial m
     runEval' r p s (Free (KvPutOp key val k)) = 
       let s' = (key, val) : filter ((/= key) . fst) s
       in runEval' r p s' k
-    runEval' r p s (Free (TransactionOp k n)) =
+    -- TODO instead of runEval', use a more Monadic way
+    -- runEval' r p s (Free (TransactionOp k n)) =
+    --   let ((p1, s1), res1) = runEval' r p s k in
+    --     case res1 of
+    --       Left _ -> let 
+    --           ((p2, s2), res2) = runEval' r p1 s n -- keep p1 for printed log before all failures are reserved
+    --         in ((p2, s2), res2)
+    --       Right _ -> let 
+    --           ((p2, s2), res2) = runEval' r p1 s1 n
+    --         in ((p2, s2), res2)
+    
+    runEval' r p s (Free (TransactionOp k n)) = 
       let ((p1, s1), res1) = runEval' r p s k in
         case res1 of
-          Left _ -> let 
-              ((p2, s2), res2) = runEval' r p1 s n -- keep p1 for printed log before all failures are reserved
-            in ((p2, s2), res2)
-          Right _ -> let 
-              ((p2, s2), res2) = runEval' r p1 s1 n
-            in ((p2, s2), res2)
-    
+          Left _ -> runEval' r p1 s n
+          Right _ ->runEval' r p1 s1 n
