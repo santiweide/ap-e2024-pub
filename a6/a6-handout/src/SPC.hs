@@ -92,6 +92,7 @@ type WorkerName = String
 -- | Messages sent to workers. These are sent both by SPC and by
 -- processes spawned by the workes.
 data WorkerMsg -- TODO: add messages.
+ = MsgWorkerStart WorkerName (ReplyChan Bool)
 
 -- Messages sent to SPC.
 data SPCMsg
@@ -105,6 +106,10 @@ data SPCMsg
     MsgJobWait JobId (ReplyChan JobDoneReason)
   | -- | Some time has passed.
     MsgTick
+  | -- | check if the worker exists. 
+    MsgWorkerExists WorkerName (ReplyChan Bool)
+  | -- | get current state through IO
+    MsgGetCurrentState (ReplyChan SPCState)
 
 -- | A handle to the SPC instance.
 data SPC = SPC (Server SPCMsg)
@@ -117,8 +122,9 @@ data SPCState = SPCState
   { spcJobsPending :: [(JobId, Job)],
     spcJobsRunning :: [(JobId, Job)],
     spcJobsDone :: [(JobId, JobDoneReason)],
-    spcJobCounter :: JobId
+    spcJobCounter :: JobId,
     -- TODO: you will need to add more fields.
+    spcWorkers :: [(WorkerName, Worker)]
   }
 
 -- | The monad in which the main SPC thread runs. This is a state
@@ -178,7 +184,9 @@ checkTimeouts :: SPCM ()
 checkTimeouts = pure () -- change in Task 4
 
 workerExists :: WorkerName -> SPCM Bool
-workerExists = undefined
+workerExists workerName = do
+  state <- get
+  return $ any ((== workerName) . fst) (spcWorkers state)
 
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
@@ -206,6 +214,13 @@ handleMsg c = do
         (_, Just _, _) -> JobRunning
         (_, _, Just r) -> JobDone r
         _ -> JobUnknown
+    MsgWorkerExists workerName rsvp -> do
+      exists <- workerExists workerName
+      if exists then io $ reply rsvp $ False
+      else io $ reply rsvp $ True
+    MsgGetCurrentState rsvp -> do 
+      state <- get 
+      io $ reply rsvp $ state
 
 startSPC :: IO SPC
 startSPC = do
@@ -244,10 +259,35 @@ jobCancel :: SPC -> JobId -> IO ()
 jobCancel (SPC c) jobid =
   sendTo c $ MsgJobCancel jobid
 
+-- TODO Question: the state is shared by all the workers... 
+-- how to guarantee the safety of the state?
+-- 
+handleWorkerMsg :: WorkerName -> Chan WorkerMsg -> SPCM ()
+handleWorkerMsg workerName c = forever $ do
+  msg <- io $ receive c
+  case msg of
+    MsgWorkerStart workerName rsvp -> do -- check job pending exists
+      state <- get
+      case spcJobsPending state of
+        [] -> io $ reply rsvp $ False
+        ((jobId, job) : pendingJobs) -> do 
+          put state { 
+              spcJobsPending = pendingJobs, 
+              spcJobsRunning = (jobId, job) : spcJobsRunning state 
+            }
+          io $ reply rsvp $ True
+
 -- | Add a new worker with this name. Fails with 'Left' if a worker
 -- with that name already exists.
 workerAdd :: SPC -> WorkerName -> IO (Either String Worker)
-workerAdd = undefined
+workerAdd (SPC c) name = do
+  exists <- requestReply c $ MsgWorkerExists name -- sync
+  if exists
+    then pure $ Left "WorkerName already exists"
+    else do
+      state <- requestReply c $ MsgGetCurrentState  -- sync
+      workerChan <- spawn $ \c -> runSPCM state $ handleWorkerMsg name c -- detach a thread
+      pure $ Right $ Worker workerChan
 
 -- | Shut down a running worker. No effect if the worker is already
 -- terminated.
