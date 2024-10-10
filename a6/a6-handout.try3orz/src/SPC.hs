@@ -20,6 +20,7 @@ module SPC
   )
 where
 
+import Data.List(partition)
 import Control.Concurrent
   ( forkIO,
     killThread,
@@ -92,6 +93,8 @@ type WorkerName = String
 -- | Messages sent to workers. These are sent both by SPC and by
 -- processes spawned by the workes.
 data WorkerMsg -- TODO: add messages.
+ = MsgWorkerStart WorkerName (ReplyChan Bool) 
+ | MsgAssignJob Job JobId
 
 -- Messages sent to SPC.
 data SPCMsg
@@ -105,6 +108,12 @@ data SPCMsg
     MsgJobWait JobId (ReplyChan JobDoneReason)
   | -- | Some time has passed.
     MsgTick
+  | -- | check if the worker exists. 
+    MsgWorkerExists WorkerName (ReplyChan Bool)
+  | -- | get current state through IO
+    MsgGetCurrentState (ReplyChan SPCState)
+  | MsgJobDone JobId
+  | MsgAddWorker  WorkerName Worker (Server WorkerMsg) (ReplyChan SPCState)
 
 -- | A handle to the SPC instance.
 data SPC = SPC (Server SPCMsg)
@@ -114,11 +123,16 @@ data Worker = Worker (Server WorkerMsg)
 
 -- | The central state. Must be protected from the bourgeoisie.
 data SPCState = SPCState
-  { spcJobsPending :: [(JobId, Job)],
+  { spcChan :: Chan SPCMsg,
+    spcJobsPending :: [(JobId, Job)],
     spcJobsRunning :: [(JobId, Job)],
     spcJobsDone :: [(JobId, JobDoneReason)],
-    spcJobCounter :: JobId
+    spcJobCounter :: JobId,
     -- TODO: you will need to add more fields.
+    spcWorkers :: [(WorkerName, Worker)],
+    spcWorkersIdle :: [(WorkerName, Worker)],
+    spcWorkerChan :: [(WorkerName, Server WorkerMsg)], -- currently not used
+    spcCanConsume :: Bool
   }
 
 -- | The monad in which the main SPC thread runs. This is a state
@@ -162,8 +176,25 @@ io m = SPCM $ \state -> do
 runSPCM :: SPCState -> SPCM a -> IO a
 runSPCM state (SPCM f) = fst <$> f state
 
+-- Only SPCM can modify the states, so we should gaurantee the SPCM orders are in sequence
+-- TODO will schedule be changing the state with other thread?
 schedule :: SPCM ()
-schedule = undefined
+schedule =  do -- run the jobs with any idle worker whenvever schedule is called...
+  state <- get
+  case (spcWorkersIdle state, spcJobsPending state, spcCanConsume state) of
+    ((workerName, Worker workerServer) : idleWorkers, (jobId, job) : pendingJobs, True) -> do 
+      -- enough resource to start consuming and the order should be controlled 
+      let updatedWorkers = idleWorkers
+      let updatedRunningJobs = (jobId, job) : spcJobsRunning state
+      put $
+        state
+          { spcWorkersIdle = updatedWorkers,
+            spcJobsPending = pendingJobs,
+            spcJobsRunning = updatedRunningJobs,
+            spcCanConsume = False
+          }
+      io $ sendTo workerServer (MsgAssignJob job jobId) -- Async, not blocking so that it will enable multi worker consuming
+    _ -> pure ()
 
 jobDone :: JobId -> JobDoneReason -> SPCM ()
 jobDone = undefined
@@ -178,8 +209,25 @@ checkTimeouts :: SPCM ()
 checkTimeouts = pure () -- change in Task 4
 
 workerExists :: WorkerName -> SPCM Bool
-workerExists = undefined
+workerExists workerName = do
+  state <- get
+  pure $ any ((== workerName) . fst) (spcWorkers state)
 
+-- TODO Question: the SPCM state is shared by all the workers... will there be problems?
+handleWorkerMsg :: Chan WorkerMsg -> SPCM ()
+handleWorkerMsg c = forever $ do
+  msg <- io $ receive c
+  case msg of
+    MsgAssignJob job jobId-> do
+      state <- get
+      _ <- io $ forkIO $ do 
+          jobAction job -- simulate the job action with a data def
+          send (spcChan state) $ MsgJobDone jobId
+      pure ()
+  -- TODO
+
+-- every thing related to state change should be sync
+-- change states related to jobs
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
   checkTimeouts
@@ -206,17 +254,47 @@ handleMsg c = do
         (_, Just _, _) -> JobRunning
         (_, _, Just r) -> JobDone r
         _ -> JobUnknown
+    MsgWorkerExists workerName rsvp -> do
+      exists <- workerExists workerName
+      if exists then io $ reply rsvp $ False
+      else io $ reply rsvp $ True
+    MsgGetCurrentState rsvp -> do 
+      state <- get 
+      io $ reply rsvp $ state
+    MsgJobDone jobid -> do
+      state <- get
+      case lookup jobid $ spcJobsRunning state of
+        Just _ -> jobDone jobid Done
+        Nothing -> pure ()
+    MsgAddWorker workerName worker c rsvp -> do
+      state <- get
+      let 
+          updatedWorker = (workerName, worker) : spcWorkers state
+          updatedWorkerIdle = (workerName, worker) : spcWorkersIdle state
+          updatedWorkerChan = (workerName, c) : spcWorkerChan state
+      put $ state { 
+          spcWorkers = updatedWorker,
+          spcWorkersIdle = updatedWorkerIdle,
+          spcWorkerChan = updatedWorkerChan
+        }
+      io $ reply rsvp $ state
+
 
 startSPC :: IO SPC
 startSPC = do
-  let initial_state =
+  let initial_state c =
         SPCState
-          { spcJobCounter = JobId 0,
+          { spcChan = c,
+            spcJobCounter = JobId 0,
             spcJobsPending = [],
             spcJobsRunning = [],
-            spcJobsDone = []
+            spcJobsDone = [],
+            spcWorkers = [],
+            spcWorkersIdle = [],
+            spcCanConsume = True,
+            spcWorkerChan = []
           }
-  c <- spawn $ \c -> runSPCM initial_state $ forever $ handleMsg c
+  c <- spawn $ \c -> runSPCM (initial_state c) $ forever $ handleMsg c
   void $ spawn $ timer c
   pure $ SPC c
   where
@@ -244,10 +322,21 @@ jobCancel :: SPC -> JobId -> IO ()
 jobCancel (SPC c) jobid =
   sendTo c $ MsgJobCancel jobid
 
+
+
 -- | Add a new worker with this name. Fails with 'Left' if a worker
 -- with that name already exists.
 workerAdd :: SPC -> WorkerName -> IO (Either String Worker)
-workerAdd = undefined
+workerAdd (SPC c) name = do
+  exists <- requestReply c $ MsgWorkerExists name -- sync
+  if exists
+    then pure $ Left "WorkerName already exists"
+    else do
+      state <- requestReply c $ MsgGetCurrentState  -- sync
+      wc <- spawn $ \chan -> runSPCM state $ handleWorkerMsg chan
+      -- _ :: Chan WorkerMsg
+      _ <- requestReply c $ MsgAddWorker name (Worker wc) wc
+      pure $ Right $ Worker wc
 
 -- | Shut down a running worker. No effect if the worker is already
 -- terminated.
