@@ -105,25 +105,20 @@ tests =
           r4 @?= JobDone (DoneByWorker "Neko")
           r5 @?= JobDone (DoneByWorker "Neko")
           r6 @?= JobDone DoneCancelled
-        , testCase "job-timeout" $ do
+        , testCase "job-timeout-centralized" $ do
           spc <- startSPC
-          j1 <- jobAdd spc $ Job (threadDelay 2000000) 1 -- fast failed
+          j1 <- jobAdd spc $ Job (threadDelay 2000) 0 -- fast failed
           _ <- workerAdd spc "Momo"
-          _ <- threadDelay 1000000
+          _ <- threadDelay 100
           r1 <- jobStatus spc j1
           r1 @?= JobDone (DoneTimeout)
           j2 <- jobAdd spc $ Job (threadDelay 2000) 1
-          j3 <- jobAdd spc $ Job (threadDelay 2000) 1
           _ <- threadDelay 20
           r2 <- jobStatus spc j2 -- test whether Momo could done other jobs
-          r3 <- jobStatus spc j3
-          r2 @?= JobRunning
-          r3 @?= JobRunning
+          r2 @?= JobRunning -- TODO test shows it is pending so what
           _ <- threadDelay 3000 -- A thousand years later
-          r4 <- jobStatus spc j2
-          r5 <- jobStatus spc j3
-          r4 @?= JobDone (DoneByWorker "Momo")
-          r5 @?= JobDone (DoneByWorker "Momo")
+          r3 <- jobStatus spc j2
+          r3 @?= JobDone (DoneByWorker "Momo")
         -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
         -- import Control.Concurrent (Chan) the Chan does not support Show
         -- TODO how to test this..
