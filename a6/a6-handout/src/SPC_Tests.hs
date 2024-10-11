@@ -20,18 +20,21 @@ tests =
           r1 <- jobStatus spc j
           r1 @?= JobPending -- currently no workers so it should be pending now
           _ <- workerAdd spc "Spiderman"
-          r3 <- jobStatus spc j
-          -- r3 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
+          _ <- threadDelay 200 -- not blocking and I did not implement the jobWait...
+          r2 <- jobStatus spc j
+          r2 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v <- readIORef ref
           v @?= True
           j2 <- jobAdd spc $ Job (writeIORef ref False) 1
-          r4 <- jobStatus spc j2
-          -- r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
+          _ <- threadDelay 200
+          r3 <- jobStatus spc j2
+          r3 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v2 <- readIORef ref
           v2 @?= False
           j3 <- jobAdd spc $ Job (writeIORef ref True) 1
-          r5 <- jobStatus spc j2
-          -- r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
+          _ <- threadDelay 200
+          r4 <- jobStatus spc j3
+          r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v3 <- readIORef ref
           v3 @?= True
         , testCase "multi-worker-flow" $ do
@@ -59,11 +62,11 @@ tests =
           r1 <- jobStatus spc j1
           r2 <- jobStatus spc j2
           r3 <- jobStatus spc j3
-          -- TODO how to guarantee the order...? just as a stack...?
           r1 @?= JobDone (DoneByWorker "Superwoman") 
           r2 @?= JobDone (DoneByWorker "Batwoman")
-          r3 @?= JobDone (DoneByWorker "Spiderwoman")
-          
+          r3 @?= JobDone (DoneByWorker "Spiderwoman")   
+
+
         -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
         -- import Control.Concurrent (Chan) the Chan does not support Show
         -- , testCase "worker-same-name" $ do

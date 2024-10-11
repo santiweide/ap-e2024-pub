@@ -189,8 +189,7 @@ schedule = do
           -- Update the state with the new list of idle workers and running jobs
           let deadline = now + fromIntegral (jobMaxSeconds job)
               updatedRunningJobs = (jobId, (deadline, Nothing, workerName)) : spcJobsRunning state
-          put $
-            state
+          modify $ \s -> s
               { spcWorkersIdle = idleWorkers, -- leave the idle pool
                 spcJobsPending = pendingJobs,
                 spcJobsRunning = updatedRunningJobs
@@ -203,29 +202,29 @@ schedule = do
 -- only do to jobs' state
 jobDone :: JobId -> JobDoneReason -> SPCM ()
 jobDone jobId reason = do
-  io $ putStrLn $ "entered!"
+  -- io $ putStrLn $ "entered!"
   state <- get
   case lookup jobId $ spcJobsDone state of
     Just _ -> do 
-      error ""
-      io $ putStrLn $ "job is already done!"
+      -- io $ putStrLn $ "job is already done!"
       pure () -- already done
     Nothing -> do
       let (waiting_for_job, not_waiting_for_job) =
             partition ((== jobId) . fst) (spcWaiting state)
       forM_ waiting_for_job $ \(_, rsvp) ->
         io $ reply rsvp $ reason
-      modify $ \state -> state { spcWaiting = not_waiting_for_job,
+      modify $ \s -> s { spcWaiting = not_waiting_for_job,
             spcJobsDone = (jobId, reason) : spcJobsDone state,
             spcJobsRunning = removeAssoc jobId $ spcJobsRunning state
           }
-      -- io $ putStrLn $ unlines 
-      --        [ "INSIDE jobDONE:", 
-      --         "job " ++ show jobId,
-      --        "jobsDone:",
-      --         show (spcJobsDone state'),
-      --         "jobsRunning:",
-      --         show (spcJobsRunning state') ]
+      state' <- get
+      io $ putStrLn $ unlines 
+             [ "INSIDE jobDONE:", 
+              "job " ++ show jobId,
+             "jobsDone:",
+              show (spcJobsDone state'),
+              "jobsRunning:",
+              show (spcJobsRunning state') ]
 
 workerIsIdle :: WorkerName -> Worker -> SPCM ()
 workerIsIdle = undefined
@@ -262,10 +261,9 @@ handleMsg c = do
     MsgJobAdd job rsvp -> do
       state <- get
       let JobId jobId = spcJobCounter state
-      put $
-        state
+      modify $ \s -> s
           { spcJobsPending =
-              (spcJobCounter state, job) : spcJobsPending state,
+              (spcJobCounter s, job) : spcJobsPending s,
             spcJobCounter = JobId $ succ jobId
           }
       io $ reply rsvp $ JobId jobId
@@ -285,7 +283,7 @@ handleMsg c = do
         Just reason -> do
           io $ reply rsvp $ reason
         Nothing ->
-          put $ state {spcWaiting = (jobId, rsvp) : spcWaiting state}
+          modify $ \s -> s {spcWaiting = (jobId, rsvp) : spcWaiting s}
     MsgWorkerExists workerName rsvp -> do
       exists <- workerExists workerName
       if exists then io $ reply rsvp $ True
@@ -299,9 +297,15 @@ handleMsg c = do
       case lookup jobId $ spcJobsRunning state of -- TODO double check for workerName is the same?
         Just _ -> do
           jobDone jobId (DoneByWorker workerName) -- return to the idle pool
-          modify $ \state ->
-            state { spcWorkersIdle = workerName : spcWorkersIdle state} 
-
+          modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state} 
+          state' <- get
+          io $ putStrLn $ unlines 
+                [ "INSIDE MsgJobDoneByWorker:", 
+                  "job " ++ show jobId,
+                "jobsDone:",
+                  show (spcJobsDone state'),
+                  "jobsRunning:",
+                  show (spcJobsRunning state') ]
         Nothing -> pure () 
     -- update state inside the server
     MsgAddWorker workerName worker rsvp -> do
@@ -327,8 +331,7 @@ handleMsg c = do
         Just (_, Just tid, workerName) -> do
               io $ killThread tid
               jobDone cancel_jobId DoneCancelled -- Change the job state and then the worker state to make the system less busy.
-              modify $ \state -> 
-                state { spcWorkersIdle = workerName : spcWorkersIdle state }  -- TODO modify or put
+              modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
         _ -> pure () -- If the jobId is not referring to a running job, skip.
 
 startSPC :: IO SPC
