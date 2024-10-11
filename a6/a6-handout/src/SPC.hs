@@ -26,7 +26,7 @@ import Control.Concurrent
     killThread,
     threadDelay,
   )
-import Control.Monad (ap, forever, liftM, void)
+import Control.Monad (ap, forever, liftM, void, forM_)
 import GenServer
 import System.Clock.Seconds (Clock (Monotonic), Seconds, getTime)
 
@@ -113,7 +113,7 @@ data SPCMsg
   | -- | get current state through IO
     MsgGetCurrentState (ReplyChan SPCState)
   | MsgJobDoneByWorker JobId WorkerName
-  | MsgAddWorker  WorkerName Worker (Server WorkerMsg) (ReplyChan SPCState)
+  | MsgAddWorker  WorkerName Worker (ReplyChan SPCState)
 
 -- | A handle to the SPC instance.
 data SPC = SPC (Server SPCMsg)
@@ -123,16 +123,15 @@ data Worker = Worker (Server WorkerMsg)
 
 -- | The central state. Must be protected from the bourgeoisie.
 data SPCState = SPCState
-  { spcChan :: Chan SPCMsg,
+  { spcChan :: Chan SPCMsg, -- a handler for worker thread access 
     spcJobsPending :: [(JobId, Job)],
     spcJobsRunning :: [(JobId, Job)],
     spcJobsDone :: [(JobId, JobDoneReason)],
+    spcWaiting :: [(JobId, ReplyChan (JobDoneReason))],
     spcJobCounter :: JobId,
     -- TODO: you will need to add more fields.
     spcWorkers :: [(WorkerName, Worker)],
-    spcWorkersIdle :: [(WorkerName, Worker)],
-    spcWorkerChan :: [(WorkerName, Server WorkerMsg)], -- defined but not used
-    spcCanConsume :: Bool
+    spcWorkersIdle :: [WorkerName]
   }
 
 -- | The monad in which the main SPC thread runs. This is a state
@@ -179,25 +178,45 @@ runSPCM state (SPCM f) = fst <$> f state
 -- Only SPCM can modify the states, so we should gaurantee the SPCM orders are in sequence
 -- TODO will schedule be changing the state with other thread?
 schedule :: SPCM ()
-schedule =  do -- run the jobs with any idle worker whenvever schedule is called...
+schedule = do
   state <- get
-  case (spcWorkersIdle state, spcJobsPending state, spcCanConsume state) of
-    ((workerName, Worker workerServer) : idleWorkers, (jobId, job) : pendingJobs, True) -> do 
-      -- enough resource to start consuming and the order should be controlled 
-      let updatedWorkers = idleWorkers
-      let updatedRunningJobs = (jobId, job) : spcJobsRunning state
-      put $
-        state
-          { spcWorkersIdle = updatedWorkers,
-            spcJobsPending = pendingJobs,
-            spcJobsRunning = updatedRunningJobs,
-            spcCanConsume = False
-          }
-      io $ sendTo workerServer (MsgAssignJob job jobId) -- Async, not blocking so that it will enable multi worker consuming
-    _ -> pure ()
+  case (spcWorkersIdle state, spcJobsPending state) of
+    (workerName : idleWorkers, (jobId, job) : pendingJobs) -> do
+      -- Find the worker server, handle the case where the worker might not exist
+      case lookup workerName (spcWorkers state) of
+        Just (Worker workerServer) -> do
+          -- Update the state with the new list of idle workers and running jobs
+          let updatedWorkers = idleWorkers
+              updatedRunningJobs = (jobId, job) : spcJobsRunning state
+          put $
+            state
+              { spcWorkersIdle = updatedWorkers,
+                spcJobsPending = pendingJobs,
+                spcJobsRunning = updatedRunningJobs
+              }
+          -- Send the job to the worker (non-blocking, asynchronous)
+          io $ sendTo workerServer (MsgAssignJob job jobId)
+        Nothing -> pure ()  -- Handle the case where the worker wasn't found, should never reach here
+    _ -> pure ()  -- No idle workers or no pending jobs, do nothing
 
 jobDone :: JobId -> JobDoneReason -> SPCM ()
-jobDone = undefined
+jobDone jobid reason = do
+  state <- get
+  case lookup jobid $ spcJobsDone state of
+    Just _ ->
+      -- We already know this job is done.
+      pure ()
+    Nothing -> do
+      let (waiting_for_job, not_waiting_for_job) =
+            partition ((== jobid) . fst) (spcWaiting state)
+      forM_ waiting_for_job $ \(_, rsvp) ->
+        io $ reply rsvp $ reason
+      put $
+        state
+          { spcWaiting = not_waiting_for_job,
+            spcJobsDone = (jobid, reason) : spcJobsDone state,
+            spcJobsPending = removeAssoc jobid $ spcJobsPending state
+          }
 
 workerIsIdle :: WorkerName -> Worker -> SPCM ()
 workerIsIdle = undefined
@@ -213,9 +232,9 @@ workerExists workerName = do
   state <- get
   pure $ any ((== workerName) . fst) (spcWorkers state)
 
--- TODO Question: the SPCM state is shared by all the workers... will there be problems?
 handleWorkerMsg :: Chan WorkerMsg -> WorkerName -> SPCM ()
 handleWorkerMsg c workerName = forever $ do
+  schedule -- TODO also schedule? 
   msg <- io $ receive c
   case msg of
     MsgAssignJob job jobId -> do
@@ -223,10 +242,10 @@ handleWorkerMsg c workerName = forever $ do
       io $ do -- save thread resource, not using forkIO
           jobAction job -- simulate the job action with a data def
           send (spcChan state) $ MsgJobDoneByWorker jobId workerName
+      modify $ \state ->
+        state { spcWorkersIdle = workerName : spcWorkersIdle state }
       pure ()
 
--- every thing related to state change should be sync
--- change states related to jobs
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
   checkTimeouts
@@ -253,28 +272,35 @@ handleMsg c = do
         (_, Just _, _) -> JobRunning
         (_, _, Just r) -> JobDone r
         _ -> JobUnknown
+    MsgJobWait jobid rsvp -> do
+      state <- get
+      case lookup jobid $ spcJobsDone state of
+        Just reason -> do
+          io $ reply rsvp $ reason
+        Nothing ->
+          put $ state {spcWaiting = (jobid, rsvp) : spcWaiting state}
     MsgWorkerExists workerName rsvp -> do
       exists <- workerExists workerName
-      if exists then io $ reply rsvp $ False
-      else io $ reply rsvp $ True
+      if exists then io $ reply rsvp $ True
+      else io $ reply rsvp $ False
     MsgGetCurrentState rsvp -> do 
       state <- get 
       io $ reply rsvp $ state
     MsgJobDoneByWorker jobid workerName -> do
       state <- get
       case lookup jobid $ spcJobsRunning state of
-        Just _ -> jobDone jobid (DoneByWorker workerName)
+        Just _ -> do
+          jobDone jobid (DoneByWorker workerName)
         Nothing -> pure ()
-    MsgAddWorker workerName worker c rsvp -> do
+    -- update state inside the server
+    MsgAddWorker workerName worker rsvp -> do
       state <- get
       let 
           updatedWorker = (workerName, worker) : spcWorkers state
-          updatedWorkerIdle = (workerName, worker) : spcWorkersIdle state
-          updatedWorkerChan = (workerName, c) : spcWorkerChan state
+          updatedWorkerIdle = (workerName) : spcWorkersIdle state
       put $ state { 
           spcWorkers = updatedWorker,
-          spcWorkersIdle = updatedWorkerIdle,
-          spcWorkerChan = updatedWorkerChan
+          spcWorkersIdle = updatedWorkerIdle
         }
       io $ reply rsvp $ state
 
@@ -287,11 +313,10 @@ startSPC = do
             spcJobCounter = JobId 0,
             spcJobsPending = [],
             spcJobsRunning = [],
+            spcWaiting = [],
             spcJobsDone = [],
             spcWorkers = [],
-            spcWorkersIdle = [],
-            spcCanConsume = True,
-            spcWorkerChan = []
+            spcWorkersIdle = []
           }
   c <- spawn $ \c -> runSPCM (initial_state c) $ forever $ handleMsg c
   void $ spawn $ timer c
@@ -330,9 +355,8 @@ workerAdd (SPC c) name = do
     then pure $ Left "WorkerName already exists"
     else do
       state <- requestReply c $ MsgGetCurrentState  -- sync
-      wc <- spawn $ \chan -> runSPCM state $ handleWorkerMsg chan name
-      -- _ :: Chan WorkerMsg
-      _ <- requestReply c $ MsgAddWorker name (Worker wc) wc --sync
+      wc <- spawn $ \chan -> runSPCM state $ handleWorkerMsg chan name -- async
+      _ <- requestReply c $ MsgAddWorker name (Worker wc) --sync
       pure $ Right $ Worker wc
 
 -- | Shut down a running worker. No effect if the worker is already

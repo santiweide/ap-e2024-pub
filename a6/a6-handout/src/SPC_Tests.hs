@@ -19,11 +19,35 @@ tests =
           j <- jobAdd spc $ Job (writeIORef ref True) 1
           r1 <- jobStatus spc j
           r1 @?= JobPending -- currently no workers so it should be pending now
-          r2 <- workerAdd spc "Spiderman"
-          r1 @?= JobDone (DoneByWorker "Spiderman")
+          _ <- workerAdd spc "Spiderman"
+          r3 <- jobStatus spc j
+          -- r3 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v <- readIORef ref
           v @?= True
-        -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq 
+          j2 <- jobAdd spc $ Job (writeIORef ref False) 1
+          r4 <- jobStatus spc j2
+          -- r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
+          v2 <- readIORef ref
+          v2 @?= True
+          j3 <- jobAdd spc $ Job (writeIORef ref False) 1
+          r5 <- jobStatus spc j2
+          -- r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
+          v3 <- readIORef ref
+          v3 @?= True
+        -- , testCase "job-work-flow-longer" $ do
+        --   spc <- startSPC
+        --   ref <- newIORef False
+        --   j <- jobAdd spc $ Job (writeIORef ref True) 1
+        --   r1 <- jobStatus spc j
+        --   r1 @?= JobPending -- currently no workers so it should be pending now
+        --   r2 <- workerAdd spc "Spiderman"
+        --   j2 <- jobAdd spc $ Job (writeIORef ref False) 1
+        --   r3 <- jobStatus spc j2
+        --   r3 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
+        --   v <- readIORef ref
+        --   v @?= False
+        -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
+        -- import Control.Concurrent (Chan) the Chan does not support Show
         -- , testCase "worker-same-name" $ do
         --   spc <- startSPC
         --   ref <- newIORef False
