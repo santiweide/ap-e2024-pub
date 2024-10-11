@@ -215,19 +215,17 @@ jobDone jobId reason = do
             partition ((== jobId) . fst) (spcWaiting state)
       forM_ waiting_for_job $ \(_, rsvp) ->
         io $ reply rsvp $ reason
-      let state' = state { spcWaiting = not_waiting_for_job,
+      modify $ state -> state { spcWaiting = not_waiting_for_job,
             spcJobsDone = (jobId, reason) : spcJobsDone state,
             spcJobsRunning = removeAssoc jobId $ spcJobsRunning state
           }
-      io $ putStrLn $ unlines 
-             [ "INSIDE jobDONE:", 
-              "job " ++ show jobId,
-             "jobsDone:",
-              show (spcJobsDone state'),
-              "jobsRunning:",
-              show (spcJobsRunning state') ]
-
-      put $ state'
+      -- io $ putStrLn $ unlines 
+      --        [ "INSIDE jobDONE:", 
+      --         "job " ++ show jobId,
+      --        "jobsDone:",
+      --         show (spcJobsDone state'),
+      --         "jobsRunning:",
+      --         show (spcJobsRunning state') ]
 
 workerIsIdle :: WorkerName -> Worker -> SPCM ()
 workerIsIdle = undefined
