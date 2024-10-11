@@ -249,13 +249,10 @@ handleWorkerMsg c spc_ch workerName = forever $ do
   msg <- receive c
   case msg of
     MsgAssignJob job jobId -> do
-      -- tid <- forkIO $ pure()
-      -- do -- this thread id is not the same as the worker thread id...
-      --     jobAction job
-      --     send spc_ch $ MsgJobDoneByWorker jobId workerName -- when the job is canceled, the MsgJobDoneByWorker may not be sent
-      jobAction job
-      send spc_ch $ MsgJobDoneByWorker jobId workerName
-      -- send spc_ch $ MsgUpdateRunningWithTid workerName tid -- tell SPC the worker in charge for tid
+      tid <- forkIO $ do -- this thread id is not the same as the worker thread id...
+          jobAction job
+          send spc_ch $ MsgJobDoneByWorker jobId workerName -- when the job is canceled, the MsgJobDoneByWorker may not be sent
+      send spc_ch $ MsgUpdateRunningWithTid workerName tid -- tell SPC the worker in charge for tid
       pure ()
 
 handleMsg :: Chan SPCMsg -> SPCM ()
@@ -319,14 +316,13 @@ handleMsg c = do
           spcWorkersIdle = updatedWorkerIdle
         }
       io $ reply rsvp $ state
-    -- MsgUpdateRunningWithTid workerName tid -> do -- TODO conflict state? 
-    --   state <- get
-    --   let updatedJobsRunning = map updateJob (spcJobsRunning state)
-    --       updateJob (jobId, (deadline, maybe_tid, wName))
-    --         | wName == workerName = (jobId, (deadline, Just tid, wName)) -- Update with new ThreadId
-    --         | otherwise = (jobId, (deadline, maybe_tid, wName))
-    --   put state { spcJobsRunning = updatedJobsRunning }
-    -- MsgJobCancel :: Running -> Done; busy -> idle
+    MsgUpdateRunningWithTid workerName tid -> do -- TODO conflict state? 
+      state <- get
+      let updatedJobsRunning = map updateJob (spcJobsRunning state)
+          updateJob (jobId, (deadline, maybe_tid, wName))
+            | wName == workerName = (jobId, (deadline, Just tid, wName)) -- Update with new ThreadId
+            | otherwise = (jobId, (deadline, maybe_tid, wName))
+      put state { spcJobsRunning = updatedJobsRunning }
     MsgJobCancel cancel_jobId -> do
       state <- get
       case lookup cancel_jobId $ spcJobsRunning state of
