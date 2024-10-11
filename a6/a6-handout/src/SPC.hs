@@ -239,7 +239,6 @@ workerIsGone = undefined
 
 -- guarantee no state change while doing checkTimeout, thread safe.
 checkTimeouts :: SPCM ()
--- checkTimeouts = pure()
 checkTimeouts = do
   state <- get
   now <- io getSeconds
@@ -252,8 +251,10 @@ checkTimeouts = do
       Just tid -> do
         io $ killThread tid 
         jobDone jobId DoneTimeout -- chage jobs state -- TODO add a batch jobDone to reduce concurrency
-        modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s } -- change the worker afterwards
-      Nothing -> pure() -- no tid...maybe we should wait... TODO
+        modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
+      Nothing -> do
+        io $ threadDelay 10 -- TODO magic number
+        checkTimeouts
 
 workerExists :: WorkerName -> SPCM Bool
 workerExists workerName = do
@@ -353,6 +354,8 @@ handleMsg c = do
               jobDone cancel_jobId DoneCancelled -- Change the job state and then the worker state to make the system less busy.
               modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
         _ -> pure () -- If the jobId is not referring to a running job, skip.
+    MsgTick ->
+      pure ()
 
 startSPC :: IO SPC
 startSPC = do
