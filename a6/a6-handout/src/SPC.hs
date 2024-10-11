@@ -215,7 +215,7 @@ jobDone jobId reason = do
             partition ((== jobId) . fst) (spcWaiting state)
       forM_ waiting_for_job $ \(_, rsvp) ->
         io $ reply rsvp $ reason
-      modify $ state -> state { spcWaiting = not_waiting_for_job,
+      modify $ \state -> state { spcWaiting = not_waiting_for_job,
             spcJobsDone = (jobId, reason) : spcJobsDone state,
             spcJobsRunning = removeAssoc jobId $ spcJobsRunning state
           }
