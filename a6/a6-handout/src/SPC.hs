@@ -20,13 +20,13 @@ module SPC
   )
 where
 
-import Data.List(partition)
 import Control.Concurrent
   ( forkIO,
     killThread,
     threadDelay,
   )
 import Control.Monad (ap, forever, liftM, void, forM_)
+import Data.List(partition)
 import GenServer
 import System.Clock.Seconds (Clock (Monotonic), Seconds, getTime)
 
@@ -110,8 +110,8 @@ data SPCMsg
     MsgTick
   | -- | check if the worker exists. 
     MsgWorkerExists WorkerName (ReplyChan Bool)
-  | -- | get current state through IO
-    MsgGetCurrentState (ReplyChan SPCState)
+  | -- | get SpcChan only. No other states!
+    MsgGetSpcChannel (ReplyChan (Chan SPCMsg))
   | MsgJobDoneByWorker JobId WorkerName
   | MsgAddWorker  WorkerName Worker (ReplyChan SPCState)
 
@@ -123,15 +123,15 @@ data Worker = Worker (Server WorkerMsg)
 
 -- | The central state. Must be protected from the bourgeoisie.
 data SPCState = SPCState
-  { spcChan :: Chan SPCMsg, -- a handler for worker thread access 
-    spcJobsPending :: [(JobId, Job)],
+  { spcJobsPending :: [(JobId, Job)],
     spcJobsRunning :: [(JobId, Job)],
     spcJobsDone :: [(JobId, JobDoneReason)],
     spcWaiting :: [(JobId, ReplyChan (JobDoneReason))],
     spcJobCounter :: JobId,
     -- TODO: you will need to add more fields.
     spcWorkers :: [(WorkerName, Worker)],
-    spcWorkersIdle :: [WorkerName]
+    spcWorkersIdle :: [WorkerName],
+    spcChan :: Chan SPCMsg -- a handler for worker thread access 
   }
 
 -- | The monad in which the main SPC thread runs. This is a state
@@ -232,18 +232,14 @@ workerExists workerName = do
   state <- get
   pure $ any ((== workerName) . fst) (spcWorkers state)
 
-handleWorkerMsg :: Chan WorkerMsg -> WorkerName -> SPCM ()
-handleWorkerMsg c workerName = forever $ do
-  schedule -- TODO also schedule? 
-  msg <- io $ receive c
+-- only do IO no state change. only state change in SPC in sequence.
+handleWorkerMsg :: Chan WorkerMsg -> Chan SPCMsg -> WorkerName -> IO ()
+handleWorkerMsg c spcChan workerName = forever $ do
+  msg <- receive c
   case msg of
     MsgAssignJob job jobId -> do
-      state <- get
-      io $ do -- save thread resource, not using forkIO
-          jobAction job -- simulate the job action with a data def
-          send (spcChan state) $ MsgJobDoneByWorker jobId workerName
-      modify $ \state ->
-        state { spcWorkersIdle = workerName : spcWorkersIdle state }
+      jobAction job -- simulate the job action with a data def
+      send spcChan $ MsgJobDoneByWorker jobId workerName -- the only thing it use with state
       pure ()
 
 handleMsg :: Chan SPCMsg -> SPCM ()
@@ -283,14 +279,16 @@ handleMsg c = do
       exists <- workerExists workerName
       if exists then io $ reply rsvp $ True
       else io $ reply rsvp $ False
-    MsgGetCurrentState rsvp -> do 
+    MsgGetSpcChannel rsvp -> do 
       state <- get 
-      io $ reply rsvp $ state
+      io $ reply rsvp $ (spcChan state)
     MsgJobDoneByWorker jobid workerName -> do
       state <- get
       case lookup jobid $ spcJobsRunning state of
         Just _ -> do
           jobDone jobid (DoneByWorker workerName)
+          modify $ \state ->
+            state { spcWorkersIdle = workerName : spcWorkersIdle state }
         Nothing -> pure ()
     -- update state inside the server
     MsgAddWorker workerName worker rsvp -> do
@@ -354,8 +352,8 @@ workerAdd (SPC c) name = do
   if exists
     then pure $ Left "WorkerName already exists"
     else do
-      state <- requestReply c $ MsgGetCurrentState  -- sync
-      wc <- spawn $ \chan -> runSPCM state $ handleWorkerMsg chan name -- async
+      spcChan <- requestReply c $ MsgGetSpcChannel 
+      wc <- spawn $ \chan -> handleWorkerMsg chan spcChan name -- async
       _ <- requestReply c $ MsgAddWorker name (Worker wc) --sync
       pure $ Right $ Worker wc
 

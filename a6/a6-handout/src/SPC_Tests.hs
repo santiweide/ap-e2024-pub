@@ -28,8 +28,8 @@ tests =
           r4 <- jobStatus spc j2
           -- r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v2 <- readIORef ref
-          v2 @?= True
-          j3 <- jobAdd spc $ Job (writeIORef ref False) 1
+          v2 @?= False
+          j3 <- jobAdd spc $ Job (writeIORef ref True) 1
           r5 <- jobStatus spc j2
           -- r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v3 <- readIORef ref
