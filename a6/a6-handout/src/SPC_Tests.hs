@@ -15,8 +15,8 @@ tests =
       [
         testCase "job-work-flow" $ do
           spc <- startSPC
-          ref <- newIORef False
-          j <- jobAdd spc $ Job (writeIORef ref True) 1
+          ref <- newIORef (1 :: Int)
+          j <- jobAdd spc $ Job (writeIORef ref 1) 1
           r1 <- jobStatus spc j
           r1 @?= JobPending -- currently no workers so it should be pending now
           _ <- workerAdd spc "Spiderman"
@@ -24,25 +24,43 @@ tests =
           r2 <- jobStatus spc j
           r2 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v <- readIORef ref
-          v @?= True
-          j2 <- jobAdd spc $ Job (writeIORef ref False) 1
+          v @?= 1
+          j2 <- jobAdd spc $ Job (writeIORef ref 2) 1
           _ <- threadDelay 200
           r3 <- jobStatus spc j2
           r3 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v2 <- readIORef ref
-          v2 @?= False
-          j3 <- jobAdd spc $ Job (writeIORef ref True) 1
+          v2 @?= 2
+          j3 <- jobAdd spc $ Job (writeIORef ref 3) 1
           _ <- threadDelay 200
           r4 <- jobStatus spc j3
           r4 @?= JobDone (DoneByWorker "Spiderman") -- add a worker so the job status would be Done
           v3 <- readIORef ref
-          v3 @?= True
+          v3 @?= 3
+        , testCase "job-wait" $ do -- dont like sync way here but still implement it
+          spc <- startSPC
+          ref <- newIORef (1 :: Int)
+          j1 <- jobAdd spc $ Job (writeIORef ref 1) 1
+          _ <- workerAdd spc "Spiderman"
+          r1 <- jobWait spc j1
+          r1 @?= (DoneByWorker "Spiderman") 
+          v <- readIORef ref
+          v @?= 1
+          j2 <- jobAdd spc $ Job (writeIORef ref 2) 1
+          r2 <- jobWait spc j2
+          r2 @?= (DoneByWorker "Spiderman")
+          v2 <- readIORef ref
+          v2 @?= 2
+          j3 <- jobAdd spc $ Job (writeIORef ref 3) 1
+          r3 <- jobWait spc j3
+          r3 @?= (DoneByWorker "Spiderman")
+          v3 <- readIORef ref
+          v3 @?= 3
         , testCase "multi-worker-flow" $ do
           spc <- startSPC
-          ref <- newIORef False
-          j1 <- jobAdd spc $ Job (threadDelay 1000) 1 -- 1ms == 1000us
-          j2 <- jobAdd spc $ Job (threadDelay 1000) 1
-          j3 <- jobAdd spc $ Job (threadDelay 1000) 1
+          j1 <- jobAdd spc $ Job (threadDelay 100) 3 -- 1ms == 1000us
+          j2 <- jobAdd spc $ Job (threadDelay 100) 3
+          j3 <- jobAdd spc $ Job (threadDelay 100) 3
           r1 <- jobStatus spc j1
           r2 <- jobStatus spc j2
           r3 <- jobStatus spc j3
@@ -52,27 +70,47 @@ tests =
           _ <- workerAdd spc "Spiderwoman"
           _ <- workerAdd spc "Batwoman"
           _ <- workerAdd spc "Superwoman"
+          r4 <- jobStatus spc j1
+          r5 <- jobStatus spc j2
+          r6 <- jobStatus spc j3
+          r4 @?= JobRunning
+          r5 @?= JobRunning
+          r6 @?= JobRunning
+          _ <- threadDelay 200 -- keep enough time
+          r7 <- jobStatus spc j1
+          r8 <- jobStatus spc j2
+          r9 <- jobStatus spc j3
+  -- TODO order when the threadDelay is the same.. or when the delay is different it will be okay
+          r7 @?= JobDone (DoneByWorker "Superwoman")
+          r8 @?= JobDone (DoneByWorker "Batwoman")
+          r9 @?= JobDone (DoneByWorker "Spiderwoman")   
+        , testCase "job-cancel" $ do
+          spc <- startSPC
+          j1 <- jobAdd spc $ Job (threadDelay 1000) 1 -- 1ms == 1000us
+          j2 <- jobAdd spc $ Job (threadDelay 1000) 1
+          j3 <- jobAdd spc $ Job (threadDelay 1000) 1
+          _ <- workerAdd spc "Neko"
+          _ <- threadDelay 20
           r1 <- jobStatus spc j1
           r2 <- jobStatus spc j2
           r3 <- jobStatus spc j3
-          r1 @?= JobRunning
-          r2 @?= JobRunning
+          r1 @?= JobPending
+          r2 @?= JobPending
           r3 @?= JobRunning
-          _ <- threadDelay 2000 -- keep enough time
-          r1 <- jobStatus spc j1
-          r2 <- jobStatus spc j2
-          r3 <- jobStatus spc j3
-          r1 @?= JobDone (DoneByWorker "Superwoman") 
-          r2 @?= JobDone (DoneByWorker "Batwoman")
-          r3 @?= JobDone (DoneByWorker "Spiderwoman")   
-
-
+          _ <- jobCancel spc j3
+          _ <- threadDelay 20000 -- wait for everything done
+          r4 <- jobStatus spc j1
+          r5 <- jobStatus spc j2
+          r6 <- jobStatus spc j3
+          r4 @?= JobDone (DoneByWorker "Neko")
+          r5 @?= JobDone (DoneByWorker "Neko")
+          r6 @?= JobDone DoneCancelled
         -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
         -- import Control.Concurrent (Chan) the Chan does not support Show
+        -- TODO how to test this..
         -- , testCase "worker-same-name" $ do
         --   spc <- startSPC
-        --   ref <- newIORef False
         --   r1 <- workerAdd spc "Spiderman"
         --   r2 <- workerAdd spc "Spiderman"
-        --   r2 @?= Left "WorkerName already exists"
+          
       ]

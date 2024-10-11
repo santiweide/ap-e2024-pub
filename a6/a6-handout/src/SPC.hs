@@ -213,27 +213,47 @@ jobDone jobId reason = do
             partition ((== jobId) . fst) (spcWaiting state)
       forM_ waiting_for_job $ \(_, rsvp) ->
         io $ reply rsvp $ reason
-      modify $ \s -> s { spcWaiting = not_waiting_for_job,
+      modify $ \s -> s 
+          { spcWaiting = not_waiting_for_job,
             spcJobsDone = (jobId, reason) : spcJobsDone state,
             spcJobsRunning = removeAssoc jobId $ spcJobsRunning state
           }
-      state' <- get
-      io $ putStrLn $ unlines 
-             [ "INSIDE jobDONE:", 
-              "job " ++ show jobId,
-             "jobsDone:",
-              show (spcJobsDone state'),
-              "jobsRunning:",
-              show (spcJobsRunning state') ]
+      -- state' <- get
+      -- io $ putStrLn $ unlines 
+      --        [ "INSIDE jobDONE:", 
+      --         "job " ++ show jobId,
+      --        "jobsDone:",
+      --         show (spcJobsDone state'),
+      --         "jobsRunning:",
+      --         show (spcJobsRunning state') ]
 
-workerIsIdle :: WorkerName -> Worker -> SPCM ()
-workerIsIdle = undefined
+-- TODO question can we leave workerIsIdle there...?
+-- TODO defined but not used...and modified from the returning SPCM ()
+-- workerIsIdle :: WorkerName -> Worker -> SPCM Bool
+-- workerIsIdle workerName worker = do
+--   state <- get
+--   pure $  workerName `elem` spcWorkersIdle state
 
 workerIsGone :: WorkerName -> SPCM ()
 workerIsGone = undefined
 
+-- guarantee no state change while doing checkTimeout, thread safe.
 checkTimeouts :: SPCM ()
-checkTimeouts = pure () -- change in Task 4
+-- checkTimeouts = pure()
+checkTimeouts = do
+  state <- get
+  now <- io getSeconds
+  let runningJobs = spcJobsRunning state
+      (timedOutJobs, activeJobs) = 
+          partition (\(_, (deadline, maybe_tid, _)) -> now >= deadline) runningJobs
+
+  forM_ timedOutJobs $ \(jobId, ( _, maybe_tid, workerName)) -> 
+    case maybe_tid of
+      Just tid -> do
+        io $ killThread tid 
+        jobDone jobId DoneTimeout -- chage jobs state -- TODO add a batch jobDone to reduce concurrency
+        modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s } -- change the worker afterwards
+      Nothing -> pure() -- no tid...maybe we should wait... TODO
 
 workerExists :: WorkerName -> SPCM Bool
 workerExists workerName = do
@@ -282,7 +302,7 @@ handleMsg c = do
       case lookup jobId $ spcJobsDone state of
         Just reason -> do
           io $ reply rsvp $ reason
-        Nothing ->
+        Nothing -> -- no reply, so it will wait.
           modify $ \s -> s {spcWaiting = (jobId, rsvp) : spcWaiting s}
     MsgWorkerExists workerName rsvp -> do
       exists <- workerExists workerName
@@ -292,20 +312,20 @@ handleMsg c = do
       state <- get 
       io $ reply rsvp $ (spcChan state)
     -- MsgJobDoneByWorker :: running -> Done, busy -> Idle
-    MsgJobDoneByWorker jobId workerName -> do -- TODO could be concurrently accessed, causing problem
+    MsgJobDoneByWorker jobId workerName -> do -- TODO could have concurrency conflict
       state <- get
-      case lookup jobId $ spcJobsRunning state of -- TODO double check for workerName is the same?
-        Just _ -> do
+      case lookup jobId $ spcJobsRunning state of 
+        Just _ -> do -- TODO double check for workerName is the same?
           jobDone jobId (DoneByWorker workerName) -- return to the idle pool
           modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state} 
-          state' <- get
-          io $ putStrLn $ unlines 
-                [ "INSIDE MsgJobDoneByWorker:", 
-                  "job " ++ show jobId,
-                "jobsDone:",
-                  show (spcJobsDone state'),
-                  "jobsRunning:",
-                  show (spcJobsRunning state') ]
+          -- state' <- get
+          -- io $ putStrLn $ unlines 
+          --       [ "INSIDE MsgJobDoneByWorker:", 
+          --         "job " ++ show jobId,
+          --       "jobsDone:",
+          --         show (spcJobsDone state'),
+          --         "jobsRunning:",
+          --         show (spcJobsRunning state') ]
         Nothing -> pure () 
     -- update state inside the server
     MsgAddWorker workerName worker rsvp -> do
