@@ -133,6 +133,20 @@ tests =
           _ <- threadDelay 3000 -- A thousand years later
           r3 <- jobStatus spc j2
           r3 @?= JobDone (DoneByWorker "Jacob")
+        , testCase "job-crashed" $ do
+          spc <- startSPC
+          ref <- newIORef False
+          j1 <- jobAdd spc $ Job (error "crash!") 1 
+          r1 <- jobStatus spc j1
+          r1 @?= JobPending
+          _ <- workerAdd spc "Catlady"
+          r2 <- jobWait spc j1 -- just wait bcz 1000000 delay is not enough
+          r2 @?= DoneCrashed
+          j3 <- jobAdd spc $ Job (writeIORef ref True) 1
+          r3 <- jobWait spc j3
+          r3 @?= DoneByWorker "Catlady"
+          v <- readIORef ref
+          v @?= True
         -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
         -- import Control.Concurrent (Chan) the Chan does not support Show
         -- TODO how to test this..

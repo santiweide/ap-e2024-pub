@@ -26,6 +26,7 @@ import Control.Concurrent
     threadDelay,
     ThreadId
   )
+import Control.Exception (SomeException, catch)
 import Control.Monad (ap, forever, liftM, void, forM_)
 import Data.List(partition)
 import GenServer
@@ -113,9 +114,15 @@ data SPCMsg
     MsgWorkerExists WorkerName (ReplyChan Bool)
   | -- | get SpcChan only. No other states!
     MsgGetSpcChannel (ReplyChan (Chan SPCMsg))
-  | MsgJobDoneByWorker JobId WorkerName
-  | MsgAddWorker  WorkerName Worker (ReplyChan SPCState)
-  | MsgUpdateRunningWithTid WorkerName ThreadId
+  | -- | inform a job is done by worker, recording worker name
+    MsgJobDoneByWorker JobId WorkerName
+  | -- | add a worker
+    MsgAddWorker  WorkerName Worker (ReplyChan SPCState)
+  | -- | update the running job with 
+    -- |   worker name=@WorkerName that it is running thread id=@tid
+    MsgUpdateRunningWithTid WorkerName ThreadId
+  | -- | Job crashed.
+    MsgJobCrashed JobId
 
 -- | A handle to the SPC instance.
 data SPC = SPC (Server SPCMsg)
@@ -267,8 +274,13 @@ handleWorkerMsg c spc_ch workerName = forever $ do
   case msg of
     MsgAssignJob job jobId -> do
       tid <- forkIO $ do -- this thread id is not the same as the worker thread id...
-          jobAction job
-          send spc_ch $ MsgJobDoneByWorker jobId workerName -- when the job is canceled, the MsgJobDoneByWorker may not be sent
+        let doJob = do
+                jobAction job
+                send spc_ch $ MsgJobDoneByWorker jobId workerName 
+            onException :: SomeException -> IO ()
+            onException _ =
+                send spc_ch $ MsgJobCrashed jobId
+        doJob `catch` onException
       send spc_ch $ MsgUpdateRunningWithTid workerName tid -- tell SPC the worker in charge for tid
       pure ()
 
@@ -353,9 +365,17 @@ handleMsg c = do
               modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
         _ -> pure () -- If the jobId is not referring to a running job, skip.
     MsgTick -> pure ()
-      -- maybe in decentralized way for task timeout,
-      -- we should Tick to Worker rather than server
-      -- why we tick to server here? 
+    MsgJobCrashed crashed_jobId -> do
+      state <- get
+      case lookup crashed_jobId $ spcJobsRunning state of
+        Just (_, Just tid, workerName) -> do
+            io $ killThread tid
+            jobDone crashed_jobId DoneCrashed
+            modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
+        Just (_, Nothing, workerName) -> do -- not assigned tid yet... wait for some time and retry
+            io $ threadDelay 10
+            io $ send c $ MsgJobCrashed crashed_jobId
+        _ -> pure ()
 
 startSPC :: IO SPC
 startSPC = do
