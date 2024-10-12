@@ -424,7 +424,7 @@ handleMsg c = do
       io $ putStrLn $ "MsgJobCancel"
       state <- get
       case lookup cancel_jobId $ spcJobsRunning state of
-        Just (_, Just tid, workerName, job) -> do
+        Just (_, Just tid, workerName, _) -> do
               io $ killThread tid
               jobDone cancel_jobId DoneCancelled -- Change the job state and then the worker state to make the system less busy.
               modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
@@ -436,7 +436,7 @@ handleMsg c = do
       io $ putStrLn $ "MsgJobCrashed"
       state <- get
       case lookup crashed_jobId $ spcJobsRunning state of
-        Just (_, Just tid, workerName, job) -> do
+        Just (_, Just tid, workerName, _) -> do
             io $ killThread tid
             jobDone crashed_jobId DoneCrashed
             modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
