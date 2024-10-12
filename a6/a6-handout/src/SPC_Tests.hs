@@ -172,8 +172,8 @@ workerStopTestCase _ =
         r2 <- jobWait spc j1
         r2 @?= DoneCancelled --both the worker and job are occupied
         j2 <- jobAdd spc $ Job (writeIORef ref 2) 1
-        -- r3 <- jobStatus spc j2
-        -- r3 @?= JobPending -- if this is running then the worker is not actually killed
+        r3 <- jobStatus spc j2
+        r3 @?= JobPending -- if this is running then the worker is not actually killed
         _ <- workerAdd spc "Manners"
         r4 <- jobWait spc j2
         r4 @?= DoneByWorker "Manners"

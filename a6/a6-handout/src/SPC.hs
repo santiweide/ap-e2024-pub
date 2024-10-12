@@ -60,6 +60,9 @@ data Job = Job
     -- the job begins executing (not when it is enqueued).
     jobMaxSeconds :: Int
   }
+instance Show Job where
+  show job = "Job { jobMaxSeconds = " ++ show (jobMaxSeconds job) ++ " }"
+
 
 -- | A unique identifier of a job that has been enqueued.
 newtype JobId = JobId Int
@@ -142,7 +145,7 @@ data Worker = Worker (Server WorkerMsg)
 -- | The central state. Must be protected from the bourgeoisie.
 data SPCState = SPCState
   { spcJobsPending :: [(JobId, Job)],
-    spcJobsRunning :: [(JobId, (Seconds, Maybe ThreadId, WorkerName))],
+    spcJobsRunning :: [(JobId, (Seconds, Maybe ThreadId, WorkerName, Job))],
     spcJobsDone :: [(JobId, JobDoneReason)],
     spcWaiting :: [(JobId, ReplyChan (JobDoneReason))], -- save handler for callback
     spcJobCounter :: JobId,
@@ -197,6 +200,17 @@ runSPCM state (SPCM f) = fst <$> f state
 schedule :: SPCM ()
 schedule = do
   state <- get
+  --- BEGIN DEBUG
+  state' <- get
+  io $ putStrLn $ unlines 
+    [
+      "DEBUG in SCHEDULE_BEGIN",
+      "\tPending " ++ (show (spcJobsPending state')),
+      "\tRunning " ++ (show (spcJobsRunning state')),
+      "\tDone " ++ (show (spcJobsDone state'))
+      -- "\tCounter " ++ (show (spcJobCounter state'))
+    ]
+
   case (spcWorkersIdle state, spcJobsPending state) of
     (workerName : idleWorkers, (jobId, job) : pendingJobs) -> do
       case lookup workerName (spcWorkers state) of
@@ -204,13 +218,23 @@ schedule = do
           now <- io $ getSeconds
           -- Update the state with the new list of idle workers and running jobs
           let deadline = now + fromIntegral (jobMaxSeconds job)
-              updatedRunningJobs = (jobId, (deadline, Nothing, workerName)) : spcJobsRunning state
+              updatedRunningJobs = (jobId, (deadline, Nothing, workerName, job)) : spcJobsRunning state
           modify $ \s -> s
               { spcWorkersIdle = idleWorkers, -- leave the idle pool
                 spcJobsPending = pendingJobs,
                 spcJobsRunning = updatedRunningJobs
               }
           -- Send the job to the worker (non-blocking, asynchronous)
+          state' <- get
+          io $ putStrLn $ unlines 
+            [
+              "DEBUG in SCHEDULE_END",
+              "\tjob added " ++ show jobId,
+              "\tPending " ++ (show (spcJobsPending state')),
+              "\tRunning " ++ (show (spcJobsRunning state')),
+              "\tDone " ++ (show (spcJobsDone state'))
+              -- "\tCounter " ++ (show (spcJobCounter state'))
+            ]
           io $ sendTo workerServer (MsgAssignJob job jobId)
         Nothing -> pure ()  -- Handle the case where the worker wasn't found, should never reach here
     _ -> pure ()  -- No idle workers or no pending jobs, do nothing
@@ -260,9 +284,9 @@ checkTimeouts = do
   -- io $ putStrLn $ "[checkTimeouts] current_time=" ++ show now
   let runningJobs = spcJobsRunning state
       (timedOutJobs, _) = 
-          partition (\(_, (deadline, _, _)) -> now >= deadline) runningJobs
+          partition (\(_, (deadline, _, _, _)) -> now >= deadline) runningJobs
 
-  forM_ timedOutJobs $ \(jobId, ( _, maybe_tid, workerName)) -> 
+  forM_ timedOutJobs $ \(jobId, ( _, maybe_tid, workerName, _)) -> 
     case maybe_tid of
       Just tid -> do
         io $ killThread tid 
@@ -318,9 +342,28 @@ handleMsg c = do
               (spcJobCounter s, job) : spcJobsPending s,
             spcJobCounter = JobId $ succ jobId
           }
+      -- BEGIN debug
+      -- state' <- get
+      -- io $ putStrLn $ unlines 
+      --   [
+      --     "\tjob added " ++ show jobId,
+      --     "\tPending " ++ (show (spcJobsPending state')),
+      --     "\tCounter " ++ (show (spcJobCounter state'))
+      --   ]
       io $ reply rsvp $ JobId jobId
     MsgJobStatus jobId rsvp -> do
       state <- get
+      -- BEGIN debug
+      state' <- get
+      io $ putStrLn $ unlines 
+        [
+          "DEBUG IN JOB STATUS",
+          "\tjob added " ++ show jobId,
+          "\tPending " ++ (show (spcJobsPending state')),
+          "\tRunning " ++ (show (spcJobsRunning state')),
+          "\tDone " ++ (show (spcJobsDone state'))
+          -- "\tCounter " ++ (show (spcJobCounter state'))
+        ]
       io $ reply rsvp $ case ( lookup jobId $ spcJobsPending state,
                                lookup jobId $ spcJobsRunning state,
                                lookup jobId $ spcJobsDone state
@@ -330,6 +373,7 @@ handleMsg c = do
         (_, _, Just r) -> JobDone r
         _ -> JobUnknown
     MsgJobWait jobId rsvp -> do
+      io $ putStrLn $ "MsgJobWait"
       state <- get
       case lookup jobId $ spcJobsDone state of
         Just reason -> do
@@ -337,10 +381,12 @@ handleMsg c = do
         Nothing -> -- no reply, so it will wait. Here a job maybe both in wait list and running list
           modify $ \s -> s {spcWaiting = (jobId, rsvp) : spcWaiting s}
     MsgWorkerExists workerName rsvp -> do
+      io $ putStrLn $ "MsgWorkerExists"
       exists <- workerExists workerName
       if exists then io $ reply rsvp $ True
       else io $ reply rsvp $ False
     MsgJobDoneByWorker jobId workerName rsvp -> do -- TODO could have concurrency conflict
+      io $ putStrLn $ "MsgJobDoneByWorker"
       state <- get
       case lookup jobId $ spcJobsRunning state of 
         Just _ -> do -- TODO double check for workerName is the same?
@@ -368,48 +414,63 @@ handleMsg c = do
         }
       io $ reply rsvp $ state
     MsgUpdateRunningWithTid workerName tid -> do -- TODO conflict state? 
+      io $ putStrLn $ "MsgUpdateRunningWithTid"
       state <- get
-      let updatedJobsRunning = map updateJob (spcJobsRunning state)
-          updateJob (jobId, (deadline, maybe_tid, wName))
-            | wName == workerName = (jobId, (deadline, Just tid, wName)) -- Update with new ThreadId
-            | otherwise = (jobId, (deadline, maybe_tid, wName))
-      put state { spcJobsRunning = updatedJobsRunning }
+      let updateJob (jobId, (deadline, maybe_tid, wName, job))
+            | wName == workerName = (jobId, (deadline, Just tid, wName, job)) -- Update with new ThreadId
+            | otherwise = (jobId, (deadline, maybe_tid, wName, job))
+      modify $ \s -> s { spcJobsRunning = map updateJob (spcJobsRunning state) }
     MsgJobCancel cancel_jobId -> do
+      io $ putStrLn $ "MsgJobCancel"
       state <- get
       case lookup cancel_jobId $ spcJobsRunning state of
-        Just (_, Just tid, workerName) -> do
+        Just (_, Just tid, workerName, job) -> do
               io $ killThread tid
               jobDone cancel_jobId DoneCancelled -- Change the job state and then the worker state to make the system less busy.
               modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
         _ -> pure () -- If the jobId is not referring to a running job, skip.
-    MsgTick -> pure ()
+    MsgTick -> do 
+      io $ putStrLn $ "MsgTick"
+      pure ()
     MsgJobCrashed crashed_jobId -> do
+      io $ putStrLn $ "MsgJobCrashed"
       state <- get
       case lookup crashed_jobId $ spcJobsRunning state of
-        Just (_, Just tid, workerName) -> do
+        Just (_, Just tid, workerName, job) -> do
             io $ killThread tid
             jobDone crashed_jobId DoneCrashed
             modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
-        Just (_, Nothing, _) -> do -- not assigned tid yet... 
+        Just (_, Nothing, _, _) -> do -- not assigned tid yet... 
         -- wait for some time and retry... 
         -- for complement for the async assign of tid...
             io $ threadDelay 10
             io $ send c $ MsgJobCrashed crashed_jobId -- retry
         _ -> pure ()
     MsgGetJobIdByWorkerName workerName rsvp -> do
+      io $ putStrLn $ "MsgGetJobIdByWorkerName"
       state <- get 
-      let maybe_res = find (\(_, (_, _, wn)) -> wn == workerName) (spcJobsRunning state)
+      let maybe_res = find (\(_, (_, _, wn, _)) -> wn == workerName) (spcJobsRunning state)
       case maybe_res of 
         Nothing -> 
             io $ reply rsvp $ Nothing 
-        Just (jobId, (_, _, _)) -> 
+        Just (jobId, (_, _, _, _)) -> 
             io $ reply rsvp $ Just jobId 
     MsgRemoveWorker workerName rsvp -> do 
-      modify $ \s -> s -- just remove all related
-        { spcWorkers = removeAssoc workerName $ spcWorkers s,
-          spcWorkersIdle = remove workerName $ spcWorkersIdle s,
-          spcJobsRunning = filter (\(_, (_, _, wName)) -> wName /= workerName) $ spcJobsRunning s
-        }
+      io $ putStrLn $ "MsgRemoveWorker"
+      -- IM so UNGLY...
+      modify $ \s -> 
+        let -- Separate jobs that are running for the worker to be removed
+            (runningJobsForWorker, otherRunningJobs) = partition (\(_, (_, _, wName, _)) -> wName == workerName) (spcJobsRunning s)
+
+            -- Extract the jobs from the running jobs associated with the worker
+            jobsToMoveBack = map (\(jobId, (_, _, _, job)) -> (jobId, job)) runningJobsForWorker
+        in s
+          { spcWorkers = removeAssoc workerName $ spcWorkers s, 
+            spcWorkersIdle = remove workerName $ spcWorkersIdle s, 
+            spcJobsRunning = otherRunningJobs, 
+            spcJobsPending = jobsToMoveBack ++ spcJobsPending s 
+          }
+
       io $ reply rsvp $ ()
 
 startSPC :: IO SPC
