@@ -96,7 +96,10 @@ type WorkerName = String
 -- | Messages sent to workers. These are sent both by SPC and by
 -- processes spawned by the workes.
 data WorkerMsg
- = MsgAssignJob Job JobId
+ = -- | assign Job and JobId to the worker
+  MsgAssignJob Job JobId
+ | -- | the worker will stop...soon
+  MsgStopSoon
 
 -- Messages sent to SPC.
 data SPCMsg
@@ -123,6 +126,9 @@ data SPCMsg
     MsgUpdateRunningWithTid WorkerName ThreadId
   | -- | Job crashed.
     MsgJobCrashed JobId
+  | -- | get worker name by job id. precheck: worker is running
+    MsgGetJobIdByWorkerName WorkerName  (ReplyChan (Maybe JobId))
+
 
 -- | A handle to the SPC instance.
 data SPC = SPC (Server SPCMsg)
@@ -268,21 +274,31 @@ workerExists workerName = do
   pure $ any ((== workerName) . fst) (spcWorkers state)
 
 -- only do IO no state change. only state change in SPC in sequence.
-handleWorkerMsg :: Chan WorkerMsg -> Chan SPCMsg -> WorkerName -> IO ()
-handleWorkerMsg c spc_ch workerName = forever $ do
+handleWorkerMsg :: Chan WorkerMsg -> SPC -> WorkerName -> IO ()
+handleWorkerMsg c (SPC spc) workerName = do
   msg <- receive c
   case msg of
     MsgAssignJob job jobId -> do
       tid <- forkIO $ do -- this thread id is not the same as the worker thread id...
         let doJob = do
-                jobAction job
-                send spc_ch $ MsgJobDoneByWorker jobId workerName 
+              jobAction job
+              sendTo spc $ MsgJobDoneByWorker jobId workerName 
             onException :: SomeException -> IO ()
             onException _ =
-                send spc_ch $ MsgJobCrashed jobId
+                sendTo spc $ MsgJobCrashed jobId
         doJob `catch` onException
-      send spc_ch $ MsgUpdateRunningWithTid workerName tid -- tell SPC the worker in charge for tid
-      pure ()
+      sendTo spc $ MsgUpdateRunningWithTid workerName tid -- tell SPC the worker in charge for tid
+      handleWorkerMsg c (SPC spc) workerName
+    MsgStopSoon -> do  -- TODO implement MsgGetJobIdByWorkerName
+    -- TODO check status of
+      maybe_job_id <- requestReply spc $ MsgGetJobIdByWorkerName workerName  
+      case maybe_job_id of
+        Just jobId -> do
+          _ <- sendTo spc $ MsgJobCancel jobId
+          _ <- threadDelay 100
+          pure() -- break the loop
+        Nothing -> pure() -- no job to kill, just break the loop
+    _ -> handleWorkerMsg c (SPC spc) workerName
 
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
@@ -426,12 +442,15 @@ workerAdd (SPC c) name = do
   if exists
     then pure $ Left "WorkerName already exists"
     else do
-      spc_ch <- requestReply c $ MsgGetSpcChannel 
-      wc <- spawn $ \chan -> handleWorkerMsg chan spc_ch name -- async
+      -- spc_ch <- requestReply c $ MsgGetSpcChannel 
+      wc <- spawn $ \chan -> handleWorkerMsg chan (SPC c) name -- async
       _ <- requestReply c $ MsgAddWorker name (Worker wc) --sync
       pure $ Right $ Worker wc
 
 -- | Shut down a running worker. No effect if the worker is already
 -- terminated.
 workerStop :: Worker -> IO ()
-workerStop = undefined
+workerStop (Worker w) = 
+  sendTo w MsgStopSoon
+
+-- data Worker = Worker (Server WorkerMsg)

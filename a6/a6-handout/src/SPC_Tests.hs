@@ -147,6 +147,27 @@ tests =
           r3 @?= DoneByWorker "Catlady"
           v <- readIORef ref
           v @?= True
+        -- , testCase "worker-stop" $ do
+        --   spc <- startSPC
+        --   ref <- newIORef 0
+        --   j1 <- jobAdd spc $ Job (threadDelay 100000 >> writeIORef ref 1) 1 -- run for 100 ms
+        --   w1 <- workerAdd spc "Starbucks"
+        --   case w1 of 
+        --     Left err -> assertFailure err
+        --     Right worker -> do
+        --       r1 <- jobStatus spc j1
+        --       r1 @?= JobRunning --both the worker and job are occupied
+        --       _ <- workerStop worker
+        --       r2 <- jobStatus spc j1
+        --       r2 @?= JobDone DoneCancelled --both the worker and job are occupied
+        --       j2 <- jobAdd spc $ Job (writeIORef ref 2) 1
+        --       r3 <- jobStatus spc j2
+        --       r3 @?= JobPending
+        --       w2 <- workerAdd spc "Manners"
+        --       r3 <- jobWait spc j2
+        --       r3 @?= DoneByWorker "Manners"
+        --       v <- readIORef ref
+        --       v @?= 2
         -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
         -- import Control.Concurrent (Chan) the Chan does not support Show
         -- TODO how to test this..
