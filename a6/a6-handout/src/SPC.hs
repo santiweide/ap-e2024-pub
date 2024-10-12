@@ -202,17 +202,15 @@ schedule = do
 -- only do to jobs' state
 jobDone :: JobId -> JobDoneReason -> SPCM ()
 jobDone jobId reason = do
-  -- io $ putStrLn $ "entered!"
   state <- get
   case lookup jobId $ spcJobsDone state of
     Just _ -> do 
-      -- io $ putStrLn $ "job is already done!"
       pure () -- already done
     Nothing -> do
       let (waiting_for_job, not_waiting_for_job) =
             partition ((== jobId) . fst) (spcWaiting state)
       forM_ waiting_for_job $ \(_, rsvp) ->
-        io $ reply rsvp $ reason
+        io $ reply rsvp $ reason -- late reply to jobWait
       modify $ \s -> s 
           { spcWaiting = not_waiting_for_job,
             spcJobsDone = (jobId, reason) : spcJobsDone state,
@@ -242,6 +240,7 @@ checkTimeouts :: SPCM ()
 checkTimeouts = do
   state <- get
   now <- io getSeconds
+  -- io $ putStrLn $ "[checkTimeouts] current_time=" ++ show now
   let runningJobs = spcJobsRunning state
       (timedOutJobs, activeJobs) = 
           partition (\(_, (deadline, maybe_tid, _)) -> now >= deadline) runningJobs
@@ -275,7 +274,7 @@ handleWorkerMsg c spc_ch workerName = forever $ do
 
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
-  checkTimeouts
+  checkTimeouts -- put is here to avoid races
   schedule
   msg <- io $ receive c
   case msg of
@@ -303,7 +302,7 @@ handleMsg c = do
       case lookup jobId $ spcJobsDone state of
         Just reason -> do
           io $ reply rsvp $ reason
-        Nothing -> -- no reply, so it will wait.
+        Nothing -> -- no reply, so it will wait. Here a job maybe both in wait list and running list
           modify $ \s -> s {spcWaiting = (jobId, rsvp) : spcWaiting s}
     MsgWorkerExists workerName rsvp -> do
       exists <- workerExists workerName
@@ -312,7 +311,6 @@ handleMsg c = do
     MsgGetSpcChannel rsvp -> do 
       state <- get 
       io $ reply rsvp $ (spcChan state)
-    -- MsgJobDoneByWorker :: running -> Done, busy -> Idle
     MsgJobDoneByWorker jobId workerName -> do -- TODO could have concurrency conflict
       state <- get
       case lookup jobId $ spcJobsRunning state of 
@@ -354,8 +352,10 @@ handleMsg c = do
               jobDone cancel_jobId DoneCancelled -- Change the job state and then the worker state to make the system less busy.
               modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
         _ -> pure () -- If the jobId is not referring to a running job, skip.
-    MsgTick ->
-      pure ()
+    MsgTick -> pure ()
+      -- maybe in decentralized way for task timeout,
+      -- we should Tick to Worker rather than server
+      -- why we tick to server here? 
 
 startSPC :: IO SPC
 startSPC = do
@@ -375,7 +375,7 @@ startSPC = do
   pure $ SPC c
   where
     timer c _ = forever $ do
-      threadDelay 1000000 -- every 1 second, send a message MsgTick to the SPC server
+      threadDelay 1000000
       sendTo c MsgTick
 
 -- | Add a job for scheduling.
@@ -383,7 +383,7 @@ jobAdd :: SPC -> Job -> IO JobId
 jobAdd (SPC c) job =
   requestReply c $ MsgJobAdd job
 
--- | Asynchronously query the job status.
+-- | Synchronously query the job status.
 jobStatus :: SPC -> JobId -> IO JobStatus
 jobStatus (SPC c) jobId =
   requestReply c $ MsgJobStatus jobId
