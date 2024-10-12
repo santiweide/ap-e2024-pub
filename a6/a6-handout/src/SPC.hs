@@ -28,7 +28,7 @@ import Control.Concurrent
   )
 import Control.Exception (SomeException, catch)
 import Control.Monad (ap, forever, liftM, void, forM_)
-import Data.List(partition)
+import Data.List(partition, find)
 import GenServer
 import System.Clock.Seconds (Clock (Monotonic), Seconds, getTime)
 
@@ -48,6 +48,8 @@ removeAssoc needle ((k, v) : kvs) =
     else (k, v) : removeAssoc needle kvs
 removeAssoc _ [] = []
 
+remove :: Eq a => a -> [a] -> [a]
+remove x = filter (/= x)
 -- Then the definition of the glorious SPC.
 
 -- | A job that is to be enqueued in the glorious SPC.
@@ -99,7 +101,7 @@ data WorkerMsg
  = -- | assign Job and JobId to the worker
   MsgAssignJob Job JobId
  | -- | the worker will stop...soon
-  MsgStopSoon
+  MsgStopAndBreakLoop
 
 -- Messages sent to SPC.
 data SPCMsg
@@ -116,16 +118,19 @@ data SPCMsg
   | -- | check if the worker exists. 
     MsgWorkerExists WorkerName (ReplyChan Bool)
   | -- | inform a job is done by worker, recording worker name
-    MsgJobDoneByWorker JobId WorkerName
+    MsgJobDoneByWorker JobId WorkerName (ReplyChan ())
   | -- | add a worker
     MsgAddWorker  WorkerName Worker (ReplyChan SPCState)
-  | -- | update the running job with 
+  | -- | update the running job with  Async, risk
     -- |   worker name=@WorkerName that it is running thread id=@tid
     MsgUpdateRunningWithTid WorkerName ThreadId
   | -- | Job crashed.
     MsgJobCrashed JobId
-  | -- | get worker name by job id. precheck: worker is running
+  | -- | get worker name by job id. 
+    -- |    precheck: worker is running, if not running then return Nothing
     MsgGetJobIdByWorkerName WorkerName  (ReplyChan (Maybe JobId))
+  | -- | remove the worker from the state map
+    MsgRemoveWorker WorkerName (ReplyChan ())
 
 
 -- | A handle to the SPC instance.
@@ -139,7 +144,7 @@ data SPCState = SPCState
   { spcJobsPending :: [(JobId, Job)],
     spcJobsRunning :: [(JobId, (Seconds, Maybe ThreadId, WorkerName))],
     spcJobsDone :: [(JobId, JobDoneReason)],
-    spcWaiting :: [(JobId, ReplyChan (JobDoneReason))],
+    spcWaiting :: [(JobId, ReplyChan (JobDoneReason))], -- save handler for callback
     spcJobCounter :: JobId,
     spcWorkers :: [(WorkerName, Worker)], -- has Server inside
     spcWorkersIdle :: [WorkerName],
@@ -246,6 +251,7 @@ jobDone jobId reason = do
 workerIsGone :: WorkerName -> SPCM ()
 workerIsGone = undefined
 
+
 -- guarantee no state change while doing checkTimeout, thread safe.
 checkTimeouts :: SPCM ()
 checkTimeouts = do
@@ -253,8 +259,8 @@ checkTimeouts = do
   now <- io getSeconds
   -- io $ putStrLn $ "[checkTimeouts] current_time=" ++ show now
   let runningJobs = spcJobsRunning state
-      (timedOutJobs, activeJobs) = 
-          partition (\(_, (deadline, maybe_tid, _)) -> now >= deadline) runningJobs
+      (timedOutJobs, _) = 
+          partition (\(_, (deadline, _, _)) -> now >= deadline) runningJobs
 
   forM_ timedOutJobs $ \(jobId, ( _, maybe_tid, workerName)) -> 
     case maybe_tid of
@@ -274,29 +280,29 @@ workerExists workerName = do
 -- only do IO no state change. only state change in SPC in sequence.
 handleWorkerMsg :: Chan WorkerMsg -> SPC -> WorkerName -> IO ()
 handleWorkerMsg c (SPC spc) workerName = do
-  msg <- receive c
+  msg <- receive c -- blocking IO
   case msg of
     MsgAssignJob job jobId -> do
       tid <- forkIO $ do -- this thread id is not the same as the worker thread id...
         let doJob = do
               jobAction job
-              sendTo spc $ MsgJobDoneByWorker jobId workerName 
+              requestReply spc $ MsgJobDoneByWorker jobId workerName 
             onException :: SomeException -> IO ()
             onException _ =
                 sendTo spc $ MsgJobCrashed jobId
         doJob `catch` onException
-      sendTo spc $ MsgUpdateRunningWithTid workerName tid -- tell SPC the worker in charge for tid
+      sendTo spc $ MsgUpdateRunningWithTid workerName tid -- async...risk...TODO
       handleWorkerMsg c (SPC spc) workerName
-    MsgStopSoon -> do  -- TODO implement MsgGetJobIdByWorkerName
-    -- TODO check status of
+    MsgStopAndBreakLoop -> do 
+    -- check status of the job 
       maybe_job_id <- requestReply spc $ MsgGetJobIdByWorkerName workerName  
       case maybe_job_id of
         Just jobId -> do
-          _ <- sendTo spc $ MsgJobCancel jobId
-          _ <- threadDelay 100
-          pure() -- break the loop
+          jobCancel (SPC spc) jobId 
+          _ <- jobWait (SPC spc) jobId -- sync 
+          workerGone (SPC spc) workerName -- remove workerName
+          pure () -- break the loop
         Nothing -> pure() -- no job to kill, just break the loop
-    _ -> handleWorkerMsg c (SPC spc) workerName
 
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
@@ -334,12 +340,13 @@ handleMsg c = do
       exists <- workerExists workerName
       if exists then io $ reply rsvp $ True
       else io $ reply rsvp $ False
-    MsgJobDoneByWorker jobId workerName -> do -- TODO could have concurrency conflict
+    MsgJobDoneByWorker jobId workerName rsvp -> do -- TODO could have concurrency conflict
       state <- get
       case lookup jobId $ spcJobsRunning state of 
         Just _ -> do -- TODO double check for workerName is the same?
           jobDone jobId (DoneByWorker workerName) -- return to the idle pool
           modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state} 
+          io $ reply rsvp $ ()
           -- state' <- get
           -- io $ putStrLn $ unlines 
           --       [ "INSIDE MsgJobDoneByWorker:", 
@@ -348,7 +355,7 @@ handleMsg c = do
           --         show (spcJobsDone state'),
           --         "jobsRunning:",
           --         show (spcJobsRunning state') ]
-        Nothing -> pure () 
+        Nothing -> io $ reply rsvp $ ()
     -- update state inside the server
     MsgAddWorker workerName worker rsvp -> do
       state <- get
@@ -383,10 +390,27 @@ handleMsg c = do
             io $ killThread tid
             jobDone crashed_jobId DoneCrashed
             modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
-        Just (_, Nothing, workerName) -> do -- not assigned tid yet... wait for some time and retry
+        Just (_, Nothing, _) -> do -- not assigned tid yet... 
+        -- wait for some time and retry... 
+        -- for complement for the async assign of tid...
             io $ threadDelay 10
-            io $ send c $ MsgJobCrashed crashed_jobId
+            io $ send c $ MsgJobCrashed crashed_jobId -- retry
         _ -> pure ()
+    MsgGetJobIdByWorkerName workerName rsvp -> do
+      state <- get 
+      let maybe_res = find (\(_, (_, _, wn)) -> wn == workerName) (spcJobsRunning state)
+      case maybe_res of 
+        Nothing -> 
+            io $ reply rsvp $ Nothing 
+        Just (jobId, (_, _, _)) -> 
+            io $ reply rsvp $ Just jobId 
+    MsgRemoveWorker workerName rsvp -> do 
+      modify $ \s -> s -- just remove all related
+        { spcWorkers = removeAssoc workerName $ spcWorkers s,
+          spcWorkersIdle = remove workerName $ spcWorkersIdle s,
+          spcJobsRunning = filter (\(_, (_, _, wName)) -> wName /= workerName) $ spcJobsRunning s
+        }
+      io $ reply rsvp $ ()
 
 startSPC :: IO SPC
 startSPC = do
@@ -406,7 +430,7 @@ startSPC = do
   pure $ SPC c
   where
     timer c _ = forever $ do
-      threadDelay 1000000
+      threadDelay 10000 -- 10ms tick
       sendTo c MsgTick
 
 -- | Add a job for scheduling.
@@ -432,19 +456,23 @@ jobCancel (SPC c) jobId =
 -- | Add a new worker with this name. Fails with 'Left' if a worker
 -- with that name already exists.
 workerAdd :: SPC -> WorkerName -> IO (Either String Worker)
-workerAdd (SPC c) name = do
-  exists <- requestReply c $ MsgWorkerExists name -- sync
+workerAdd (SPC c) workerName = do
+  exists <- requestReply c $ MsgWorkerExists workerName -- sync
   if exists
     then pure $ Left "WorkerName already exists"
     else do
-      wc <- spawn $ \chan -> handleWorkerMsg chan (SPC c) name -- async
-      _ <- requestReply c $ MsgAddWorker name (Worker wc) --sync
+      wc <- spawn $ \chan -> handleWorkerMsg chan (SPC c) workerName -- async
+      _ <- requestReply c $ MsgAddWorker workerName (Worker wc) --sync
       pure $ Right $ Worker wc
 
 -- | Shut down a running worker. No effect if the worker is already
 -- terminated.
 workerStop :: Worker -> IO ()
 workerStop (Worker w) = 
-  sendTo w MsgStopSoon
+  sendTo w MsgStopAndBreakLoop
+
+workerGone :: SPC -> WorkerName -> IO()
+workerGone (SPC c) workerName = do 
+  requestReply c $ MsgRemoveWorker workerName
 
 -- data Worker = Worker (Server WorkerMsg)
