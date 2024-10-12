@@ -293,14 +293,14 @@ handleWorkerMsg c (SPC spc) workerName = do
         doJob `catch` onException
       sendTo spc $ MsgUpdateRunningWithTid workerName tid -- async...risk...TODO
       handleWorkerMsg c (SPC spc) workerName
-    MsgStopAndBreakLoop -> do 
+    MsgStopAndBreakLoop -> do -- one rpc to SPC
     -- check status of the job 
       maybe_job_id <- requestReply spc $ MsgGetJobIdByWorkerName workerName  
       case maybe_job_id of
         Just jobId -> do
           jobCancel (SPC spc) jobId 
           _ <- jobWait (SPC spc) jobId -- sync 
-          workerGone (SPC spc) workerName -- remove workerName
+          workerGone (SPC spc) workerName -- remove workerName, sync
           pure () -- break the loop
         Nothing -> pure() -- no job to kill, just break the loop
 
