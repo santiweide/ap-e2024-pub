@@ -121,7 +121,8 @@ tests =
           r3 @?= JobDone (DoneByWorker "RogBrod")
         , testCase "job-timeout-centralized-1" $ do
           spc <- startSPC
-          j1 <- jobAdd spc $ Job (threadDelay 1001000) 1 -- fast failed
+          j1 <- jobAdd spc $ Job (threadDelay 2000000) 1 -- fast failed
+          _ <- threadDelay 1000000 -- let MsgTick happen
           _ <- workerAdd spc "Jacob"
           r1 <- jobWait spc j1 -- just wait bcz 1000000 delay is not enough
           r1 @?= DoneTimeout

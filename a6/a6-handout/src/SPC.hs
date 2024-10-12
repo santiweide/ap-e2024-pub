@@ -274,7 +274,7 @@ handleWorkerMsg c spc_ch workerName = forever $ do
 
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
-  checkTimeouts -- put is here to avoid races
+  checkTimeouts -- prior than schedule to make sure timeout expiration
   schedule
   msg <- io $ receive c
   case msg of
