@@ -375,7 +375,7 @@ startSPC = do
   pure $ SPC c
   where
     timer c _ = forever $ do
-      threadDelay 1000000 -- 1 second
+      threadDelay 1000000 -- every 1 second, send a message MsgTick to the SPC server
       sendTo c MsgTick
 
 -- | Add a job for scheduling.
