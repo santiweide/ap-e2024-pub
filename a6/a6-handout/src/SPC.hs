@@ -115,8 +115,6 @@ data SPCMsg
     MsgTick
   | -- | check if the worker exists. 
     MsgWorkerExists WorkerName (ReplyChan Bool)
-  | -- | get SpcChan only. No other states!
-    MsgGetSpcChannel (ReplyChan (Chan SPCMsg))
   | -- | inform a job is done by worker, recording worker name
     MsgJobDoneByWorker JobId WorkerName
   | -- | add a worker
@@ -336,9 +334,6 @@ handleMsg c = do
       exists <- workerExists workerName
       if exists then io $ reply rsvp $ True
       else io $ reply rsvp $ False
-    MsgGetSpcChannel rsvp -> do 
-      state <- get 
-      io $ reply rsvp $ (spcChan state)
     MsgJobDoneByWorker jobId workerName -> do -- TODO could have concurrency conflict
       state <- get
       case lookup jobId $ spcJobsRunning state of 
@@ -442,7 +437,6 @@ workerAdd (SPC c) name = do
   if exists
     then pure $ Left "WorkerName already exists"
     else do
-      -- spc_ch <- requestReply c $ MsgGetSpcChannel 
       wc <- spawn $ \chan -> handleWorkerMsg chan (SPC c) name -- async
       _ <- requestReply c $ MsgAddWorker name (Worker wc) --sync
       pure $ Right $ Worker wc
