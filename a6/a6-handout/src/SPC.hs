@@ -102,9 +102,11 @@ type WorkerName = String
 -- processes spawned by the workes.
 data WorkerMsg
  = -- | assign Job and JobId to the worker
-  MsgAssignJob Job JobId
- | -- | the worker will stop...soon
-  MsgStopAndBreakLoop
+   -- | partial sync, make sure to get thread id updated. But cannot make sure the job is done.
+   -- | so its name is just assign.
+  MsgAssignJob Job JobId (ReplyChan ())
+ | -- | the worker will stop
+  MsgStopAndBreakLoop (ReplyChan ())
 
 -- Messages sent to SPC.
 data SPCMsg
@@ -134,6 +136,8 @@ data SPCMsg
     MsgGetJobIdByWorkerName WorkerName  (ReplyChan (Maybe JobId))
   | -- | remove the worker from the state map
     MsgRemoveWorker WorkerName (ReplyChan ())
+  | -- | do job cancel and worker remove syncly
+    MsgRemoveWorkersJobIfAnyRunning WorkerName (ReplyChan ())
 
 
 -- | A handle to the SPC instance.
@@ -225,7 +229,7 @@ schedule = do
                 spcJobsRunning = updatedRunningJobs
               }
           -- Send the job to the worker (non-blocking, asynchronous)
-          state' <- get
+          -- state' <- get
           -- io $ putStrLn $ unlines 
           --   [
           --     "DEBUG in SCHEDULE_END",
@@ -235,7 +239,7 @@ schedule = do
           --     "\tDone " ++ (show (spcJobsDone state'))
           --     -- "\tCounter " ++ (show (spcJobCounter state'))
           --   ]
-          io $ sendTo workerServer (MsgAssignJob job jobId)
+          io $ requestReply workerServer (MsgAssignJob job jobId)
         Nothing -> pure ()  -- Handle the case where the worker wasn't found, should never reach here
     _ -> pure ()  -- No idle workers or no pending jobs, do nothing
 
@@ -265,16 +269,22 @@ jobDone jobId reason = do
       --         "jobsRunning:",
       --         show (spcJobsRunning state') ]
 
--- TODO question can we leave workerIsIdle there...?
--- TODO defined but not used...and modified from the returning SPCM ()
--- workerIsIdle :: WorkerName -> Worker -> SPCM Bool
--- workerIsIdle workerName worker = do
---   state <- get
---   pure $  workerName `elem` spcWorkersIdle state
+workerIsIdle :: WorkerName -> Worker -> SPCM ()
+workerIsIdle = 
+  modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
 
 workerIsGone :: WorkerName -> SPCM ()
-workerIsGone = undefined
-
+workerIsGone =       
+  modify $ \s -> 
+    let 
+        (runningJobsForWorker, otherRunningJobs) = partition (\(_, (_, _, wName, _)) -> wName == workerName) (spcJobsRunning s)
+        jobsToMoveBack = map (\(jobId, (_, _, _, job)) -> (jobId, job)) runningJobsForWorker
+    in s
+      { spcWorkers = removeAssoc workerName $ spcWorkers s, 
+        spcWorkersIdle = remove workerName $ spcWorkersIdle s, 
+        spcJobsRunning = otherRunningJobs, 
+        spcJobsPending = jobsToMoveBack ++ spcJobsPending s 
+      }
 
 -- guarantee no state change while doing checkTimeout, thread safe.
 checkTimeouts :: SPCM ()
@@ -291,7 +301,7 @@ checkTimeouts = do
       Just tid -> do
         io $ killThread tid 
         jobDone jobId DoneTimeout -- chage jobs state -- TODO add a batch jobDone to reduce concurrency
-        modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
+        workerIsIdle
       Nothing -> do
         io $ threadDelay 10 -- TODO magic number
         checkTimeouts
@@ -306,7 +316,7 @@ handleWorkerMsg :: Chan WorkerMsg -> SPC -> WorkerName -> IO ()
 handleWorkerMsg c (SPC spc) workerName = do
   msg <- receive c -- blocking IO
   case msg of
-    MsgAssignJob job jobId -> do
+    MsgAssignJob job jobId rsvp -> do
       tid <- forkIO $ do -- this thread id is not the same as the worker thread id...
         let doJob = do
               jobAction job
@@ -316,17 +326,20 @@ handleWorkerMsg c (SPC spc) workerName = do
                 sendTo spc $ MsgJobCrashed jobId
         doJob `catch` onException
       sendTo spc $ MsgUpdateRunningWithTid workerName tid -- async...risk...TODO
+      reply rsvp $ ()
       handleWorkerMsg c (SPC spc) workerName
-    MsgStopAndBreakLoop -> do -- should change into one RPC to SPC
+    MsgStopAndBreakLoop rsvp -> do -- should change into one RPC to SPC
     -- check status of the job 
       maybe_job_id <- requestReply spc $ MsgGetJobIdByWorkerName workerName  
       case maybe_job_id of
         Just jobId -> do
-          jobCancel (SPC spc) jobId 
-          _ <- jobWait (SPC spc) jobId -- sync 
+          jobCancel (SPC spc) jobId  -- job could be
+          _ <- jobWait (SPC spc) jobId -- sync to make sure the job is removed
           workerGone (SPC spc) workerName -- remove workerName, sync
-          pure () -- break the loop
-        Nothing -> pure() -- no job to kill, just break the loop
+          reply rsvp $ () -- break the loop
+        Nothing -> do 
+          workerGone (SPC spc) workerName
+          reply rsvp $ () -- no job to kill, just change state and break the loop
 
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
@@ -391,7 +404,7 @@ handleMsg c = do
       case lookup jobId $ spcJobsRunning state of 
         Just _ -> do -- TODO double check for workerName is the same?
           jobDone jobId (DoneByWorker workerName) -- return to the idle pool
-          modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state} 
+          workerIsIdle
           io $ reply rsvp $ ()
           -- state' <- get
           -- io $ putStrLn $ unlines 
@@ -427,7 +440,7 @@ handleMsg c = do
         Just (_, Just tid, workerName, _) -> do
               io $ killThread tid
               jobDone cancel_jobId DoneCancelled -- Change the job state and then the worker state to make the system less busy.
-              modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
+              workerIsIdle
         _ -> pure () -- If the jobId is not referring to a running job, skip.
     MsgTick -> do 
       -- io $ putStrLn $ "MsgTick"
@@ -439,7 +452,7 @@ handleMsg c = do
         Just (_, Just tid, workerName, _) -> do
             io $ killThread tid
             jobDone crashed_jobId DoneCrashed
-            modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
+            workerIsIdle
         Just (_, Nothing, _, _) -> do -- not assigned tid yet... 
         -- wait for some time and retry... 
         -- for complement for the async assign of tid...
@@ -456,21 +469,26 @@ handleMsg c = do
         Just (jobId, (_, _, _, _)) -> 
             io $ reply rsvp $ Just jobId 
     MsgRemoveWorker workerName rsvp -> do 
-      -- io $ putStrLn $ "MsgRemoveWorker"
-      -- SO UNGLY...
-      modify $ \s -> 
-        let -- Separate jobs that are running for the worker to be removed
-            (runningJobsForWorker, otherRunningJobs) = partition (\(_, (_, _, wName, _)) -> wName == workerName) (spcJobsRunning s)
-            -- Extract the jobs from the running jobs associated with the worker
-            jobsToMoveBack = map (\(jobId, (_, _, _, job)) -> (jobId, job)) runningJobsForWorker
-        in s
-          { spcWorkers = removeAssoc workerName $ spcWorkers s, 
-            spcWorkersIdle = remove workerName $ spcWorkersIdle s, 
-            spcJobsRunning = otherRunningJobs, 
-            spcJobsPending = jobsToMoveBack ++ spcJobsPending s 
-          }
+        workerIsGone
 
       io $ reply rsvp $ ()
+    MsgRemoveWorkersJobIfAnyRunning workerName rsvp -> do -- less async but more safety
+      state <- get 
+      let maybe_res = find (\(_, (_, _, wn, _)) -> wn == workerName) (spcJobsRunning state)
+      case maybe_res of -- no running job, exit
+        Nothing -> 
+          io $ reply rsvp $ () 
+        Just (jobId, (_, _, _, _)) -> do -- has running jobs
+          case lookup cancel_jobId $ spcJobsRunning state of -- cancel job
+            Just (_, Just tid, workerName, _) -> do
+              io $ killThread tid
+              jobDone cancel_jobId DoneCancelled
+              workerIsIdle
+            _ -> pure () -- If the jobId is not referring to a running job, skip.
+          workerIsGone
+          io $ reply rsvp $ ()
+
+
 
 startSPC :: IO SPC
 startSPC = do
@@ -526,10 +544,10 @@ workerAdd (SPC c) workerName = do
       pure $ Right $ Worker wc
 
 -- | Shut down a running worker. No effect if the worker is already
--- terminated.
+-- terminated. syc.
 workerStop :: Worker -> IO ()
 workerStop (Worker w) = 
-  sendTo w MsgStopAndBreakLoop
+  requestReply w $ MsgStopAndBreakLoop
 
 workerGone :: SPC -> WorkerName -> IO()
 workerGone (SPC c) workerName = do 

@@ -13,13 +13,14 @@ tests :: TestTree
 tests =
   localOption (mkTimeout 3000000) $
     testGroup "SPC (core)" $ -- only those we use wait are assigned for 100 frequency
-        [ jobWorkFlowTestCase i | i <- [1..2]] ++  -- delay depends, so easy to fail
-        [ jobWaitWorkTestCase i | i <- [1..100]] ++ -- fintune for jobWorkFlowTestCase
-        [ jobMultiWorkFlowTestCase i | i <- [1..2]] ++ 
-        [ jobCanceledTestCase i | i <- [1..100]] ++ 
-        [ jobTimeout1TestCase i | i <- [1..2]] ++ 
-        [ jobCrashedTestCase i | i <- [1..100]] ++
-        [ workerStopTestCase i | i <- [1..100]]
+        [ jobWorkFlowTestCase i | i <- [1..2]] ++  -- functionality test
+        [ jobMultiWorkFlowTestCase i | i <- [1..100]] ++  -- functionality test
+        [ jobWaitWorkTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
+        [ jobCanceledTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
+        [ jobTimeout1TestCase i | i <- [1..2]] ++ -- functionality test, so 2 loops
+        [ jobCrashedTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
+        [ workerRunningStopTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
+        [ workerNoJobStopTestCase i | i <- [1..100]] -- concurrency tests, so 100 loops
 
 -- specific test cases
 jobWorkFlowTestCase :: Int -> TestTree
@@ -75,9 +76,9 @@ jobMultiWorkFlowTestCase :: Int -> TestTree
 jobMultiWorkFlowTestCase _ = 
   testCase "multi-worker-flow" $ do
     spc <- startSPC
-    j1 <- jobAdd spc $ Job (threadDelay 100) 3 -- 1ms == 1000us
-    j2 <- jobAdd spc $ Job (threadDelay 100) 3
-    j3 <- jobAdd spc $ Job (threadDelay 100) 3
+    j1 <- jobAdd spc $ Job (threadDelay 2000) 3 -- 1ms == 1000us
+    j2 <- jobAdd spc $ Job (threadDelay 2000) 3
+    j3 <- jobAdd spc $ Job (threadDelay 2000) 3
     r1 <- jobStatus spc j1
     r2 <- jobStatus spc j2
     r3 <- jobStatus spc j3
@@ -94,19 +95,19 @@ jobMultiWorkFlowTestCase _ =
     r5 @?= JobRunning
     r6 @?= JobRunning
     _ <- threadDelay 200 -- keep enough time
-    r7 <- jobStatus spc j1
-    r8 <- jobStatus spc j2
-    r9 <- jobStatus spc j3
+    r7 <- jobWait spc j1
+    r8 <- jobWait spc j2
+    r9 <- jobWait spc j3
   -- TODO order when the threadDelay is the same.. or when the delay is different it will be okay
-    r7 @?= JobDone (DoneByWorker "Catwoman")
-    r8 @?= JobDone (DoneByWorker "Batwoman")
-    r9 @?= JobDone (DoneByWorker "Spiderwoman")  
+    r7 @?= DoneByWorker "Catwoman"
+    r8 @?= DoneByWorker "Batwoman"
+    r9 @?= DoneByWorker "Spiderwoman"  
 
 jobCanceledTestCase :: Int -> TestTree
 jobCanceledTestCase _ = 
   testCase "job-cancel" $ do
     spc <- startSPC
-    j1 <- jobAdd spc $ Job (threadDelay 1000) 1 -- 1ms == 1000us
+    j1 <- jobAdd spc $ Job (threadDelay 1000000) 1 -- 1ms == 1000us TOBE cancelled so have a loonger
     _ <- workerAdd spc "Peter"
     _ <- threadDelay 100
     r1 <- jobStatus spc j1
@@ -155,9 +156,9 @@ jobCrashedTestCase _ =
     v <- readIORef ref
     v @?= True
 
-workerStopTestCase :: Int -> TestTree
-workerStopTestCase _ = 
-  testCase "worker-stop" $ do
+workerRunningStopTestCase :: Int -> TestTree
+workerRunningStopTestCase _ = 
+  testCase "worker-jobbing-stop" $ do
     spc <- startSPC
     ref <- newIORef (0 :: Int)
     j1 <- jobAdd spc $ Job (threadDelay 100000 >> writeIORef ref 1) 1 -- run for 100 ms
@@ -179,6 +180,31 @@ workerStopTestCase _ =
         v <- readIORef ref
         v @?= 2
 
+workerNoJobStopTestCase :: Int -> TestTree
+workerNoJobStopTestCase _ = 
+  testCase "worker-no-job-stop" $ do
+    spc <- startSPC
+    ref <- newIORef (0 :: Int)
+    j1 <- jobAdd spc $ Job (threadDelay 100 >> writeIORef ref 1) 1 -- run for 0.1ms
+    w1 <- workerAdd spc "Noodles"
+    case w1 of 
+      Left err -> assertFailure err
+      Right worker -> do
+        r1 <- jobStatus spc j1
+        r1 @?= JobRunning --both the worker and job are occupied
+        r2 <- jobWait spc j1
+        r2 @?= DoneByWorker "Noodles" --both the worker and job are occupied
+        v1 <- readIORef ref
+        v1 @?= 1
+        _ <- workerStop worker
+        j2 <- jobAdd spc $ Job (writeIORef ref 2) 1
+        r3 <- jobStatus spc j2
+        r3 @?= JobPending -- if this is running then the worker is not actually killed
+        _ <- workerAdd spc "Coffee"
+        r4 <- jobWait spc j2
+        r4 @?= DoneByWorker "Coffee"
+        v2 <- readIORef ref
+        v2 @?= 2
 -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
 -- import Control.Concurrent (Chan) the Chan does not support Show
 -- TODO how to test this..
