@@ -201,15 +201,15 @@ schedule :: SPCM ()
 schedule = do
   state <- get
   --- BEGIN DEBUG
-  state' <- get
-  io $ putStrLn $ unlines 
-    [
-      "DEBUG in SCHEDULE_BEGIN",
-      "\tPending " ++ (show (spcJobsPending state')),
-      "\tRunning " ++ (show (spcJobsRunning state')),
-      "\tDone " ++ (show (spcJobsDone state'))
-      -- "\tCounter " ++ (show (spcJobCounter state'))
-    ]
+  -- state' <- get
+  -- io $ putStrLn $ unlines 
+  --   [
+  --     "DEBUG in SCHEDULE_BEGIN",
+  --     "\tPending " ++ (show (spcJobsPending state')),
+  --     "\tRunning " ++ (show (spcJobsRunning state')),
+  --     "\tDone " ++ (show (spcJobsDone state'))
+  --     -- "\tCounter " ++ (show (spcJobCounter state'))
+  --   ]
 
   case (spcWorkersIdle state, spcJobsPending state) of
     (workerName : idleWorkers, (jobId, job) : pendingJobs) -> do
@@ -226,15 +226,15 @@ schedule = do
               }
           -- Send the job to the worker (non-blocking, asynchronous)
           state' <- get
-          io $ putStrLn $ unlines 
-            [
-              "DEBUG in SCHEDULE_END",
-              "\tjob added " ++ show jobId,
-              "\tPending " ++ (show (spcJobsPending state')),
-              "\tRunning " ++ (show (spcJobsRunning state')),
-              "\tDone " ++ (show (spcJobsDone state'))
-              -- "\tCounter " ++ (show (spcJobCounter state'))
-            ]
+          -- io $ putStrLn $ unlines 
+          --   [
+          --     "DEBUG in SCHEDULE_END",
+          --     "\tjob added " ++ show jobId,
+          --     "\tPending " ++ (show (spcJobsPending state')),
+          --     "\tRunning " ++ (show (spcJobsRunning state')),
+          --     "\tDone " ++ (show (spcJobsDone state'))
+          --     -- "\tCounter " ++ (show (spcJobCounter state'))
+          --   ]
           io $ sendTo workerServer (MsgAssignJob job jobId)
         Nothing -> pure ()  -- Handle the case where the worker wasn't found, should never reach here
     _ -> pure ()  -- No idle workers or no pending jobs, do nothing
@@ -317,7 +317,7 @@ handleWorkerMsg c (SPC spc) workerName = do
         doJob `catch` onException
       sendTo spc $ MsgUpdateRunningWithTid workerName tid -- async...risk...TODO
       handleWorkerMsg c (SPC spc) workerName
-    MsgStopAndBreakLoop -> do -- one rpc to SPC
+    MsgStopAndBreakLoop -> do -- should change into one RPC to SPC
     -- check status of the job 
       maybe_job_id <- requestReply spc $ MsgGetJobIdByWorkerName workerName  
       case maybe_job_id of
@@ -354,16 +354,16 @@ handleMsg c = do
     MsgJobStatus jobId rsvp -> do
       state <- get
       -- BEGIN debug
-      state' <- get
-      io $ putStrLn $ unlines 
-        [
-          "DEBUG IN JOB STATUS",
-          "\tjob added " ++ show jobId,
-          "\tPending " ++ (show (spcJobsPending state')),
-          "\tRunning " ++ (show (spcJobsRunning state')),
-          "\tDone " ++ (show (spcJobsDone state'))
-          -- "\tCounter " ++ (show (spcJobCounter state'))
-        ]
+      -- state' <- get
+      -- io $ putStrLn $ unlines 
+      --   [
+      --     "DEBUG IN JOB STATUS",
+      --     "\tjob added " ++ show jobId,
+      --     "\tPending " ++ (show (spcJobsPending state')),
+      --     "\tRunning " ++ (show (spcJobsRunning state')),
+      --     "\tDone " ++ (show (spcJobsDone state'))
+      --     -- "\tCounter " ++ (show (spcJobCounter state'))
+      --   ]
       io $ reply rsvp $ case ( lookup jobId $ spcJobsPending state,
                                lookup jobId $ spcJobsRunning state,
                                lookup jobId $ spcJobsDone state
@@ -373,7 +373,7 @@ handleMsg c = do
         (_, _, Just r) -> JobDone r
         _ -> JobUnknown
     MsgJobWait jobId rsvp -> do
-      io $ putStrLn $ "MsgJobWait"
+      -- io $ putStrLn $ "MsgJobWait"
       state <- get
       case lookup jobId $ spcJobsDone state of
         Just reason -> do
@@ -381,12 +381,12 @@ handleMsg c = do
         Nothing -> -- no reply, so it will wait. Here a job maybe both in wait list and running list
           modify $ \s -> s {spcWaiting = (jobId, rsvp) : spcWaiting s}
     MsgWorkerExists workerName rsvp -> do
-      io $ putStrLn $ "MsgWorkerExists"
+      -- io $ putStrLn $ "MsgWorkerExists"
       exists <- workerExists workerName
       if exists then io $ reply rsvp $ True
       else io $ reply rsvp $ False
     MsgJobDoneByWorker jobId workerName rsvp -> do -- TODO could have concurrency conflict
-      io $ putStrLn $ "MsgJobDoneByWorker"
+      -- io $ putStrLn $ "MsgJobDoneByWorker"
       state <- get
       case lookup jobId $ spcJobsRunning state of 
         Just _ -> do -- TODO double check for workerName is the same?
@@ -414,14 +414,14 @@ handleMsg c = do
         }
       io $ reply rsvp $ state
     MsgUpdateRunningWithTid workerName tid -> do -- TODO conflict state? 
-      io $ putStrLn $ "MsgUpdateRunningWithTid"
+      -- io $ putStrLn $ "MsgUpdateRunningWithTid"
       state <- get
       let updateJob (jobId, (deadline, maybe_tid, wName, job))
             | wName == workerName = (jobId, (deadline, Just tid, wName, job)) -- Update with new ThreadId
             | otherwise = (jobId, (deadline, maybe_tid, wName, job))
       modify $ \s -> s { spcJobsRunning = map updateJob (spcJobsRunning state) }
     MsgJobCancel cancel_jobId -> do
-      io $ putStrLn $ "MsgJobCancel"
+      -- io $ putStrLn $ "MsgJobCancel"
       state <- get
       case lookup cancel_jobId $ spcJobsRunning state of
         Just (_, Just tid, workerName, _) -> do
@@ -430,10 +430,10 @@ handleMsg c = do
               modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
         _ -> pure () -- If the jobId is not referring to a running job, skip.
     MsgTick -> do 
-      io $ putStrLn $ "MsgTick"
+      -- io $ putStrLn $ "MsgTick"
       pure ()
     MsgJobCrashed crashed_jobId -> do
-      io $ putStrLn $ "MsgJobCrashed"
+      -- io $ putStrLn $ "MsgJobCrashed"
       state <- get
       case lookup crashed_jobId $ spcJobsRunning state of
         Just (_, Just tid, workerName, _) -> do
@@ -447,7 +447,7 @@ handleMsg c = do
             io $ send c $ MsgJobCrashed crashed_jobId -- retry
         _ -> pure ()
     MsgGetJobIdByWorkerName workerName rsvp -> do
-      io $ putStrLn $ "MsgGetJobIdByWorkerName"
+      -- io $ putStrLn $ "MsgGetJobIdByWorkerName"
       state <- get 
       let maybe_res = find (\(_, (_, _, wn, _)) -> wn == workerName) (spcJobsRunning state)
       case maybe_res of 
@@ -456,12 +456,11 @@ handleMsg c = do
         Just (jobId, (_, _, _, _)) -> 
             io $ reply rsvp $ Just jobId 
     MsgRemoveWorker workerName rsvp -> do 
-      io $ putStrLn $ "MsgRemoveWorker"
-      -- IM so UNGLY...
+      -- io $ putStrLn $ "MsgRemoveWorker"
+      -- SO UNGLY...
       modify $ \s -> 
         let -- Separate jobs that are running for the worker to be removed
             (runningJobsForWorker, otherRunningJobs) = partition (\(_, (_, _, wName, _)) -> wName == workerName) (spcJobsRunning s)
-
             -- Extract the jobs from the running jobs associated with the worker
             jobsToMoveBack = map (\(jobId, (_, _, _, job)) -> (jobId, job)) runningJobsForWorker
         in s

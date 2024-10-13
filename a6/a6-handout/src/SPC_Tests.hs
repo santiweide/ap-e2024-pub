@@ -13,15 +13,15 @@ tests :: TestTree
 tests =
   localOption (mkTimeout 3000000) $
     testGroup "SPC (core)" $ -- only those we use wait are assigned for 100 frequency
-        -- [ jobWorkFlowTestCase i | i <- [1..2]] ++  -- delay depends, so easy to fail
-        -- [ jobWaitWorkTestCase i | i <- [1..100]] ++ -- fintune for jobWorkFlowTestCase
-        -- [ jobMultiWorkFlowTestCase i | i <- [1..2]] ++ 
-        -- [ jobCanceledTestCase i | i <- [1..100]] ++ 
-        -- [ jobTimeout1TestCase i | i <- [1..2]] ++ 
-        -- [ jobCrashedTestCase i | i <- [1..100]] 
-        [ workerStopTestCase i | i <- [1..1]]
+        [ jobWorkFlowTestCase i | i <- [1..2]] ++  -- delay depends, so easy to fail
+        [ jobWaitWorkTestCase i | i <- [1..100]] ++ -- fintune for jobWorkFlowTestCase
+        [ jobMultiWorkFlowTestCase i | i <- [1..2]] ++ 
+        [ jobCanceledTestCase i | i <- [1..100]] ++ 
+        [ jobTimeout1TestCase i | i <- [1..2]] ++ 
+        [ jobCrashedTestCase i | i <- [1..100]] ++
+        [ workerStopTestCase i | i <- [1..100]]
 
-
+-- specific test cases
 jobWorkFlowTestCase :: Int -> TestTree
 jobWorkFlowTestCase num = 
   testCase "job-work-flow" $ do
@@ -154,7 +154,6 @@ jobCrashedTestCase _ =
     r3 @?= DoneByWorker "Catlady"
     v <- readIORef ref
     v @?= True
-
 
 workerStopTestCase :: Int -> TestTree
 workerStopTestCase _ = 
