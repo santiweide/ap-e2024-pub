@@ -146,8 +146,9 @@ io m = SPCM $ \state -> do
 runSPCM :: SPCState -> SPCM a -> IO a
 runSPCM state (SPCM f) = fst <$> f state
 
+-- change states of jobs running and pending
 schedule :: SPCM ()
-schedule = do
+schedule = do -- run the jobs in the schedule
   state <- get
   case (spcJobRunning state, spcJobsPending state) of
     (Nothing, (jobid, job) : jobs) -> do
@@ -200,6 +201,8 @@ checkTimeouts = do
           jobDone jobid DoneTimeout
     _ -> pure ()
 
+
+-- change states of jobs pending and counter
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
   checkTimeouts
