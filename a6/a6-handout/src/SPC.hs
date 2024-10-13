@@ -269,12 +269,14 @@ jobDone jobId reason = do
       --         "jobsRunning:",
       --         show (spcJobsRunning state') ]
 
-workerIsIdle :: WorkerName -> Worker -> SPCM ()
-workerIsIdle = 
-  modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle state }
+workerIsIdle :: WorkerName -> SPCM ()
+-- workerIsIdle :: WorkerName -> Worker -> SPCM ()
+workerIsIdle workerName = do
+  modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
+  pure ()
 
 workerIsGone :: WorkerName -> SPCM ()
-workerIsGone =       
+workerIsGone workerName = do
   modify $ \s -> 
     let 
         (runningJobsForWorker, otherRunningJobs) = partition (\(_, (_, _, wName, _)) -> wName == workerName) (spcJobsRunning s)
@@ -285,6 +287,7 @@ workerIsGone =
         spcJobsRunning = otherRunningJobs, 
         spcJobsPending = jobsToMoveBack ++ spcJobsPending s 
       }
+  pure ()
 
 -- guarantee no state change while doing checkTimeout, thread safe.
 checkTimeouts :: SPCM ()
@@ -301,7 +304,7 @@ checkTimeouts = do
       Just tid -> do
         io $ killThread tid 
         jobDone jobId DoneTimeout -- chage jobs state -- TODO add a batch jobDone to reduce concurrency
-        workerIsIdle
+        workerIsIdle workerName
       Nothing -> do
         io $ threadDelay 10 -- TODO magic number
         checkTimeouts
@@ -404,7 +407,7 @@ handleMsg c = do
       case lookup jobId $ spcJobsRunning state of 
         Just _ -> do -- TODO double check for workerName is the same?
           jobDone jobId (DoneByWorker workerName) -- return to the idle pool
-          workerIsIdle
+          workerIsIdle workerName
           io $ reply rsvp $ ()
           -- state' <- get
           -- io $ putStrLn $ unlines 
@@ -440,7 +443,7 @@ handleMsg c = do
         Just (_, Just tid, workerName, _) -> do
               io $ killThread tid
               jobDone cancel_jobId DoneCancelled -- Change the job state and then the worker state to make the system less busy.
-              workerIsIdle
+              workerIsIdle workerName
         _ -> pure () -- If the jobId is not referring to a running job, skip.
     MsgTick -> do 
       -- io $ putStrLn $ "MsgTick"
@@ -452,7 +455,7 @@ handleMsg c = do
         Just (_, Just tid, workerName, _) -> do
             io $ killThread tid
             jobDone crashed_jobId DoneCrashed
-            workerIsIdle
+            workerIsIdle workerName
         Just (_, Nothing, _, _) -> do -- not assigned tid yet... 
         -- wait for some time and retry... 
         -- for complement for the async assign of tid...
@@ -468,9 +471,8 @@ handleMsg c = do
             io $ reply rsvp $ Nothing 
         Just (jobId, (_, _, _, _)) -> 
             io $ reply rsvp $ Just jobId 
-    MsgRemoveWorker workerName rsvp -> do 
-        workerIsGone
-
+    MsgRemoveWorker workerName rsvp -> do
+      workerIsGone workerName
       io $ reply rsvp $ ()
     MsgRemoveWorkersJobIfAnyRunning workerName rsvp -> do -- less async but more safety
       state <- get 
@@ -479,13 +481,17 @@ handleMsg c = do
         Nothing -> 
           io $ reply rsvp $ () 
         Just (jobId, (_, _, _, _)) -> do -- has running jobs
-          case lookup cancel_jobId $ spcJobsRunning state of -- cancel job
-            Just (_, Just tid, workerName, _) -> do
-              io $ killThread tid
-              jobDone cancel_jobId DoneCancelled
-              workerIsIdle
+          case lookup jobId $ spcJobsRunning state of -- cancel job
+            Just (_, Just tid, workerName', _) -> do
+              if workerName' == workerName then do
+                io $ killThread tid
+                jobDone jobId DoneCancelled
+                workerIsIdle workerName
+              else do 
+                _ <- io $ error "[MsgRemoveWorkersJobIfAnyRunning] workerName running and the given not same!"
+                pure () -- should never reach here
             _ -> pure () -- If the jobId is not referring to a running job, skip.
-          workerIsGone
+          workerIsGone workerName
           io $ reply rsvp $ ()
 
 
