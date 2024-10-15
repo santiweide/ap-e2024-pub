@@ -338,10 +338,10 @@ handleWorkerMsg c (SPC spc) workerName = do
         Just jobId -> do
           jobCancel (SPC spc) jobId  -- job could be
           _ <- jobWait (SPC spc) jobId -- sync to make sure the job is removed
-          workerGone (SPC spc) workerName -- remove workerName, sync
+          requestReply spc $ MsgRemoveWorker workerName
           reply rsvp $ () -- break the loop
         Nothing -> do 
-          workerGone (SPC spc) workerName
+          requestReply spc $ MsgRemoveWorker workerName
           reply rsvp $ () -- no job to kill, just change state and break the loop
 
 handleMsg :: Chan SPCMsg -> SPCM ()
@@ -554,9 +554,3 @@ workerAdd (SPC c) workerName = do
 workerStop :: Worker -> IO ()
 workerStop (Worker w) = 
   requestReply w $ MsgStopAndBreakLoop
-
-workerGone :: SPC -> WorkerName -> IO()
-workerGone (SPC c) workerName = do 
-  requestReply c $ MsgRemoveWorker workerName
-
--- data Worker = Worker (Server WorkerMsg)
