@@ -269,10 +269,12 @@ jobDone jobId reason = do
       --         "jobsRunning:",
       --         show (spcJobsRunning state') ]
 
-workerIsIdle :: WorkerName -> SPCM ()
--- workerIsIdle :: WorkerName -> Worker -> SPCM ()
-workerIsIdle workerName = do
+-- centralized to be -> workerIsIdle :: WorkerName -> SPCM ()
+workerIsIdle :: WorkerName -> Worker -> SPCM ()
+workerIsIdle workerName (Worker c) = do
   modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
+  -- TODO send to Worker about a MsgTick to do checkTimeout
+  requestReply c $ MsgTick
   pure ()
 
 workerIsGone :: WorkerName -> SPCM ()
@@ -288,6 +290,7 @@ workerIsGone workerName = do
         spcJobsPending = jobsToMoveBack ++ spcJobsPending s 
       }
   pure ()
+
 
 -- guarantee no state change while doing checkTimeout, thread safe.
 checkTimeouts :: SPCM ()
