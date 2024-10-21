@@ -57,6 +57,18 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
+library
+    hs-source-dirs: src
+    build-depends:
+        base
+      , tasty
+      , tasty-hunit
+      , clock
+    exposed-modules:
+        SPC
+        SPC_Tests
+        GenServer
+
 test-suite a7-test
     -- Import common warning flags.
     import:           warnings
@@ -73,11 +85,12 @@ test-suite a7-test
     -- The interface type and version of the test suite.
     type:             exitcode-stdio-1.0
 
-    -- Directories containing source files.
-    hs-source-dirs:   test
-
     -- The entrypoint to the test suite.
     main-is:          runtests.hs
 
     -- Test dependencies.
-    build-depends:    base ^>=4.17.2.1
+    build-depends:    
+        base ^>=4.17.2.1
+      , tasty
+      , a7
+
