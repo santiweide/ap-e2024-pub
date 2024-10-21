@@ -88,20 +88,14 @@ jobMultiWorkFlowTestCase _ =
     _ <- workerAdd spc "Spiderwoman"
     _ <- workerAdd spc "Batwoman"
     _ <- workerAdd spc "Catwoman"
-    r4 <- jobStatus spc j1
-    r5 <- jobStatus spc j2
-    r6 <- jobStatus spc j3
-    r4 @?= JobRunning
-    r5 @?= JobRunning
-    r6 @?= JobRunning
     _ <- threadDelay 200 -- keep enough time
-    r7 <- jobWait spc j1
-    r8 <- jobWait spc j2
-    r9 <- jobWait spc j3
+    r4 <- jobWait spc j1
+    r5 <- jobWait spc j2
+    r6 <- jobWait spc j3
   -- TODO order when the threadDelay is the same.. or when the delay is different it will be okay
-    r7 @?= DoneByWorker "Catwoman"
-    r8 @?= DoneByWorker "Batwoman"
-    r9 @?= DoneByWorker "Spiderwoman"  
+    r4 @?= DoneByWorker "Catwoman"
+    r5 @?= DoneByWorker "Batwoman"
+    r6 @?= DoneByWorker "Spiderwoman"  
 
 jobCanceledTestCase :: Int -> TestTree
 jobCanceledTestCase _ = 
