@@ -153,7 +153,7 @@ data SPCState = SPCState
     spcJobsDone :: [(JobId, JobDoneReason)],
     spcWaiting :: [(JobId, ReplyChan (JobDoneReason))], -- save handler for callback
     spcJobCounter :: JobId,
-    spcWorkers :: [(WorkerName, Worker)], -- has Server inside
+    spcWorkers :: [(WorkerName, Worker)], -- has Server inside, contains all the workers
     spcWorkersIdle :: [WorkerName],
     spcChan :: Chan SPCMsg -- a handler for requesting access 
   }
