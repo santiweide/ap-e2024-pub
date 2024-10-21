@@ -32,7 +32,7 @@ jobWorkFlowTestCase num =
     r1 <- jobStatus spc j
     r1 @?= JobPending -- currently no workers so it should be pending now
     _ <- workerAdd spc "Neko"
-    _ <- threadDelay 5000 
+    _ <- threadDelay 5000 -- not blocking and I did not implement the jobWait...
     r2 <- jobStatus spc j
     r2 @?= JobDone (DoneByWorker "Neko") -- add a worker so the job status would be Done
     v <- readIORef ref

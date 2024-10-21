@@ -270,9 +270,11 @@ jobDone jobId reason = do
       --         show (spcJobsRunning state') ]
 
 -- centralized to be -> workerIsIdle :: WorkerName -> SPCM ()
-workerIsIdle :: WorkerName -> SPCM ()
-workerIsIdle workerName = do
+workerIsIdle :: WorkerName -> Worker -> SPCM ()
+workerIsIdle workerName (Worker c) = do
   modify $ \s -> s { spcWorkersIdle = workerName : spcWorkersIdle s }
+  -- TODO send to Worker about a MsgTick to do checkTimeout
+  requestReply c $ MsgTick
   pure ()
 
 workerIsGone :: WorkerName -> SPCM ()
