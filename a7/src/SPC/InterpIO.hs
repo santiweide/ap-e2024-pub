@@ -1,4 +1,4 @@
-module GenServer
+module SPC.InterpIO
   ( 
     pipeline,
     interpCCIO
@@ -12,44 +12,11 @@ import Control.Concurrent
     writeChan,
     readChan
   )
-import Control.Monad (ap)
+import SPC.Monad
 
-type Msg = String
-
-data Free e a
-  = Pure a
-  | Free (e (Free e a))
-
-instance (Functor e) => Functor (Free e) where
-  fmap f (Pure x) = Pure $ f x
-  fmap f (Free g) = Free $ fmap (fmap f) g
-
-instance (Functor e) => Applicative (Free e) where
-  pure = Pure
-  (<*>) = ap
-
-instance (Functor e) => Monad (Free e) where
-  Pure x >>= f = f x
-  Free g >>= f = Free $ h <$> g
-    where
-      h x = x >>= f
-
-data CCOp a
-  = CCFork (CC ()) a
-  | CCNewChan (Chan Msg -> a)
-  | CCSend (Chan Msg) Msg a
-  | CCReceive (Chan Msg) (Msg -> a)
-
-type CC a = Free CCOp a
-
-instance Functor CCOp where
-  fmap f (CCFork m c) = CCFork m (f c)
-  fmap f (CCNewChan c) = CCNewChan $ f . c
-  fmap f (CCSend chan msg c) = CCSend chan msg $ f c
-  fmap f (CCReceive chan c) = CCReceive chan $ f . c
-
+-- IO SPC
 -- interpCCIO :: CC (Chan Msg) a -> IO a
-interpCCIO :: CC a -> IO a
+interpCCIO :: CC (Chan Msg) a -> IO a
 interpCCIO (Pure x) =
   pure x
 interpCCIO (Free (CCFork m c)) = do
@@ -65,19 +32,19 @@ interpCCIO (Free (CCReceive chan c)) = do
   msg <- readChan chan
   interpCCIO $ c msg
 
-ccNewChan :: CC (Chan Msg)
+ccNewChan :: CC chan chan
 ccNewChan = Free $ CCNewChan pure
 
-ccFork :: CC () -> CC ()
+ccFork :: CC chan () -> CC chan ()
 ccFork m = Free $ CCFork m $ pure ()
 
-ccSend :: Chan Msg -> Msg -> CC ()
+ccSend :: chan -> Msg -> CC chan ()
 ccSend chan msg = Free $ CCSend chan msg $ pure ()
 
-ccReceive :: Chan Msg -> CC Msg
+ccReceive :: chan -> CC chan Msg
 ccReceive chan = Free $ CCReceive chan pure
 
-pipeline :: CC String
+pipeline :: CC chan String
 pipeline = do
   chan_0 <- ccNewChan
   chan_1 <- ccNewChan

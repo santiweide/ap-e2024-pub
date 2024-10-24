@@ -65,9 +65,10 @@ library
       , tasty-hunit
       , clock
     exposed-modules:
-        SPC
-        SPC_Tests
-        GenServer
+        SPC.Monad
+        SPC.InterpIO
+        SPC.InterpPure
+        SPC.SPC_Tests
 
 test-suite a7-test
     -- Import common warning flags.

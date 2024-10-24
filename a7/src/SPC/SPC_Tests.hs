@@ -1,4 +1,4 @@
-module SPC_Tests (tests) where
+module SPC.SPC_Tests (tests) where
 
 import Test.Tasty (TestTree, testGroup, localOption, mkTimeout)
 
