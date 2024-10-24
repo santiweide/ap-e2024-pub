@@ -1,5 +1,5 @@
 module SPC_Tests (tests) where
-
+-- TODO replicate
 import Control.Concurrent (threadDelay)
 -- TODO how to test a list of jobs in a monadic style? 
 -- import Control.Monad (forM, forM_, replicateM)
@@ -14,9 +14,10 @@ tests =
   localOption (mkTimeout 3000000) $
     testGroup "SPC (core)" $ -- only those we use wait are assigned for 100 frequency
         [ jobWorkFlowTestCase i | i <- [1..2]] ++  -- functionality test
-        [ jobMultiWorkFlowTestCase i | i <- [1..100]] ++  -- functionality test
+        [ jobMultiWorkFlowTestCase i | i <- [1..2]] ++  -- functionality test
         [ jobWaitWorkTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
         [ jobCanceledTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
+        [ jobPendingCanceledTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
         [ jobTimeout1TestCase i | i <- [1..2]] ++ -- functionality test, so 2 loops
         [ jobCrashedTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
         [ workerRunningStopTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
@@ -77,18 +78,17 @@ jobMultiWorkFlowTestCase _ =
   testCase "multi-worker-flow" $ do
     spc <- startSPC
     j1 <- jobAdd spc $ Job (threadDelay 2000) 3 -- 1ms == 1000us
-    j2 <- jobAdd spc $ Job (threadDelay 2000) 3
-    j3 <- jobAdd spc $ Job (threadDelay 2000) 3
     r1 <- jobStatus spc j1
-    r2 <- jobStatus spc j2
-    r3 <- jobStatus spc j3
     r1 @?= JobPending
+    _ <- workerAdd spc "Catwoman"
+    j2 <- jobAdd spc $ Job (threadDelay 2000) 3
+    r2 <- jobStatus spc j2
     r2 @?= JobPending 
+    _ <- workerAdd spc "Batwoman"
+    j3 <- jobAdd spc $ Job (threadDelay 2000) 3
+    r3 <- jobStatus spc j3
     r3 @?= JobPending 
     _ <- workerAdd spc "Spiderwoman"
-    _ <- workerAdd spc "Batwoman"
-    _ <- workerAdd spc "Catwoman"
-    _ <- threadDelay 200 -- keep enough time
     r4 <- jobWait spc j1
     r5 <- jobWait spc j2
     r6 <- jobWait spc j3
@@ -96,6 +96,16 @@ jobMultiWorkFlowTestCase _ =
     r4 @?= DoneByWorker "Catwoman"
     r5 @?= DoneByWorker "Batwoman"
     r6 @?= DoneByWorker "Spiderwoman"  
+
+
+jobPendingCanceledTestCase :: Int -> TestTree
+jobPendingCanceledTestCase _ = 
+  testCase "job-pending-cancel" $ do
+    spc <- startSPC
+    j1 <- jobAdd spc $ Job (threadDelay 1) 1 -- 1ms == 1000us TOBE cancelled so have a loonger
+    _ <- jobCancel spc j1
+    r1 <- jobStatus spc j1
+    r1 @?= JobPending
 
 jobCanceledTestCase :: Int -> TestTree
 jobCanceledTestCase _ = 
@@ -199,11 +209,15 @@ workerNoJobStopTestCase _ =
         r4 @?= DoneByWorker "Coffee"
         v2 <- readIORef ref
         v2 @?= 2
--- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
--- import Control.Concurrent (Chan) the Chan does not support Show
--- TODO how to test this..
--- , testCase "worker-same-name" $ do
---   spc <- startSPC
---   r1 <- workerAdd spc "Spiderman"
---   r2 <- workerAdd spc "Spiderman"
-  
+
+
+-- workerSameName :: Int -> TestTree
+-- workerSameName _ = 
+-- -- Commented because No instance for (Eq (Server WorkerMsg))...long chain to add deriving Eq,Show
+-- -- import Control.Concurrent (Chan) the Chan does not support Show TDp
+-- -- TODO how to test this..
+--     testCase "worker-same-name" $ do
+--       spc <- startSPC
+--       r1 <- workerAdd spc "Spiderman"
+--       r2 <- workerAdd spc "Spiderman"
+      

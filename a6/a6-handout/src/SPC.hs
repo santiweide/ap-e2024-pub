@@ -135,9 +135,9 @@ data SPCMsg
     -- |    precheck: worker is running, if not running then return Nothing
     MsgGetJobIdByWorkerName WorkerName  (ReplyChan (Maybe JobId))
   | -- | remove the worker from the state map
-    MsgRemoveWorker WorkerName (ReplyChan ())
+    MsgRemoveWorker WorkerName
   | -- | do job cancel and worker remove syncly
-    MsgRemoveWorkersJobIfAnyRunning WorkerName (ReplyChan ())
+    MsgRemoveWorkersJobIfAnyRunning WorkerName
 
 
 -- | A handle to the SPC instance.
@@ -339,11 +339,11 @@ handleWorkerMsg c (SPC spc) workerName = do
         Just jobId -> do
           jobCancel (SPC spc) jobId  -- job could be
           _ <- jobWait (SPC spc) jobId -- sync to make sure the job is removed
-          requestReply spc $ MsgRemoveWorker workerName
-          reply rsvp $ () -- break the loop
+          sendTo spc $ MsgRemoveWorker workerName
+          reply rsvp $ ()
         Nothing -> do 
-          requestReply spc $ MsgRemoveWorker workerName
-          reply rsvp $ () -- no job to kill, just change state and break the loop
+          sendTo spc $ MsgRemoveWorker workerName
+          reply rsvp $ ()
 
 handleMsg :: Chan SPCMsg -> SPCM ()
 handleMsg c = do
@@ -472,15 +472,13 @@ handleMsg c = do
             io $ reply rsvp $ Nothing 
         Just (jobId, (_, _, _, _)) -> 
             io $ reply rsvp $ Just jobId 
-    MsgRemoveWorker workerName rsvp -> do
+    MsgRemoveWorker workerName -> do
       workerIsGone workerName
-      io $ reply rsvp $ ()
-    MsgRemoveWorkersJobIfAnyRunning workerName rsvp -> do -- less async but more safety
+    MsgRemoveWorkersJobIfAnyRunning workerName -> do -- less async but more safety
       state <- get 
       let maybe_res = find (\(_, (_, _, wn, _)) -> wn == workerName) (spcJobsRunning state)
       case maybe_res of -- no running job, exit
-        Nothing -> 
-          io $ reply rsvp $ () 
+        Nothing -> pure ()
         Just (jobId, (_, _, _, _)) -> do -- has running jobs
           case lookup jobId $ spcJobsRunning state of -- cancel job
             Just (_, Just tid, workerName', _) -> do
@@ -493,8 +491,7 @@ handleMsg c = do
                 pure () -- should never reach here
             _ -> pure () -- If the jobId is not referring to a running job, skip.
           workerIsGone workerName
-          io $ reply rsvp $ ()
-
+          pure $ ()
 
 
 startSPC :: IO SPC
