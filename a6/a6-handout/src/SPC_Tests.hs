@@ -2,7 +2,8 @@ module SPC_Tests (tests) where
 -- TODO replicate
 import Control.Concurrent (threadDelay)
 -- TODO how to test a list of jobs in a monadic style? 
--- import Control.Monad (forM, forM_, replicateM)
+-- import Control.Monad (replicateM) 
+-- import Control.Monad (forM, forM_, replicateM) 
 import Data.IORef
 import SPC
 import Test.Tasty (TestTree, localOption, mkTimeout, testGroup)
@@ -12,16 +13,21 @@ import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 tests :: TestTree
 tests =
   localOption (mkTimeout 3000000) $
-    testGroup "SPC (core)" $ -- only those we use wait are assigned for 100 frequency
-        [ jobWorkFlowTestCase i | i <- [1..2]] ++  -- functionality test
-        [ jobMultiWorkFlowTestCase i | i <- [1..2]] ++  -- functionality test
-        [ jobWaitWorkTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
-        [ jobCanceledTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
-        [ jobPendingCanceledTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
-        [ jobTimeout1TestCase i | i <- [1..2]] ++ -- functionality test, so 2 loops
-        [ jobCrashedTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
-        [ workerRunningStopTestCase i | i <- [1..100]] ++ -- concurrency tests, so 100 loops
-        [ workerNoJobStopTestCase i | i <- [1..100]] -- concurrency tests, so 100 loops
+    testGroup "SPC (core)" $
+        concat $ [ -- functionality test
+          -- replicate 5 jobWorkFlowTestCase
+          map jobWorkFlowTestCase [1..2] 
+          , replicate 2 jobTimeout1TestCase 
+          , replicate 2 jobMultiWorkFlowTestCase
+        ] ++
+        [ -- concurrency test
+          replicate 100 jobWaitWorkTestCase
+          , replicate 100 jobCanceledTestCase 
+          , replicate 100 jobPendingCanceledTestCase
+          , replicate 100 jobCrashedTestCase
+          , replicate 100 workerRunningStopTestCase
+          , replicate 100 workerNoJobStopTestCase
+        ]
 
 -- specific test cases
 jobWorkFlowTestCase :: Int -> TestTree
@@ -35,46 +41,46 @@ jobWorkFlowTestCase num =
     _ <- workerAdd spc "Neko"
     _ <- threadDelay 5000 
     r2 <- jobStatus spc j
-    r2 @?= JobDone (DoneByWorker "Neko") -- add a worker so the job status would be Done
+    r2 @?= JobDone Done -- add a worker so the job status would be Done
     v <- readIORef ref
     v @?= num + 1
     j2 <- jobAdd spc $ Job (writeIORef ref $ num + 2) 1
     _ <- threadDelay 100
     r3 <- jobStatus spc j2
-    r3 @?= JobDone (DoneByWorker "Neko") -- add a worker so the job status would be Done
+    r3 @?= JobDone Done -- add a worker so the job status would be Done
     v2 <- readIORef ref
     v2 @?= num + 2
     j3 <- jobAdd spc $ Job (writeIORef ref $ num + 3) 1
     _ <- threadDelay 100
     r4 <- jobStatus spc j3
-    r4 @?= JobDone (DoneByWorker "Neko") -- add a worker so the job status would be Done
+    r4 @?= JobDone Done -- add a worker so the job status would be Done
     v3 <- readIORef ref
     v3 @?= num + 3
 
-jobWaitWorkTestCase :: Int -> TestTree
-jobWaitWorkTestCase _ = 
+jobWaitWorkTestCase :: TestTree
+jobWaitWorkTestCase = 
   testCase "job-wait" $ do -- dont like sync way here but still implement it
     spc <- startSPC
     ref <- newIORef (1 :: Int)
     j1 <- jobAdd spc $ Job (writeIORef ref 1) 1
     _ <- workerAdd spc "Mickey"
     r1 <- jobWait spc j1
-    r1 @?= (DoneByWorker "Mickey") 
+    r1 @?= Done
     v <- readIORef ref
     v @?= 1
     j2 <- jobAdd spc $ Job (writeIORef ref 2) 1
     r2 <- jobWait spc j2
-    r2 @?= (DoneByWorker "Mickey")
+    r2 @?= Done
     v2 <- readIORef ref
     v2 @?= 2
     j3 <- jobAdd spc $ Job (writeIORef ref 3) 1
     r3 <- jobWait spc j3
-    r3 @?= (DoneByWorker "Mickey")
+    r3 @?= Done
     v3 <- readIORef ref
     v3 @?= 3
 
-jobMultiWorkFlowTestCase :: Int -> TestTree
-jobMultiWorkFlowTestCase _ = 
+jobMultiWorkFlowTestCase :: TestTree
+jobMultiWorkFlowTestCase = 
   testCase "multi-worker-flow" $ do
     spc <- startSPC
     j1 <- jobAdd spc $ Job (threadDelay 2000) 3 -- 1ms == 1000us
@@ -93,13 +99,13 @@ jobMultiWorkFlowTestCase _ =
     r5 <- jobWait spc j2
     r6 <- jobWait spc j3
   -- TODO order when the threadDelay is the same.. or when the delay is different it will be okay
-    r4 @?= DoneByWorker "Catwoman"
-    r5 @?= DoneByWorker "Batwoman"
-    r6 @?= DoneByWorker "Spiderwoman"  
+    r4 @?= Done
+    r5 @?= Done
+    r6 @?= Done
 
 
-jobPendingCanceledTestCase :: Int -> TestTree
-jobPendingCanceledTestCase _ = 
+jobPendingCanceledTestCase :: TestTree
+jobPendingCanceledTestCase = 
   testCase "job-pending-cancel" $ do
     spc <- startSPC
     j1 <- jobAdd spc $ Job (threadDelay 1) 1 -- 1ms == 1000us TOBE cancelled so have a loonger
@@ -107,8 +113,8 @@ jobPendingCanceledTestCase _ =
     r1 <- jobStatus spc j1
     r1 @?= JobPending
 
-jobCanceledTestCase :: Int -> TestTree
-jobCanceledTestCase _ = 
+jobCanceledTestCase :: TestTree
+jobCanceledTestCase = 
   testCase "job-cancel" $ do
     spc <- startSPC
     j1 <- jobAdd spc $ Job (threadDelay 1000000) 1 -- 1ms == 1000us TOBE cancelled so have a loonger
@@ -127,11 +133,11 @@ jobCanceledTestCase _ =
     r5 <- jobWait spc j2
     r6 <- jobWait spc j3
     r4 @?= DoneCancelled
-    r5 @?= DoneByWorker "Peter"
-    r6 @?= DoneByWorker "Peter"
+    r5 @?= Done
+    r6 @?= Done
 
-jobTimeout1TestCase :: Int -> TestTree
-jobTimeout1TestCase _ = 
+jobTimeout1TestCase :: TestTree
+jobTimeout1TestCase = 
   testCase "job-timeout-centralized-1" $ do
     spc <- startSPC
     j1 <- jobAdd spc $ Job (threadDelay 2000000) 1 -- fast failed
@@ -141,10 +147,10 @@ jobTimeout1TestCase _ =
     r1 @?= DoneTimeout
     j2 <- jobAdd spc $ Job (threadDelay 2000) 1
     r2 <- jobWait spc j2
-    r2 @?= DoneByWorker "Jacob"
+    r2 @?= Done
 
-jobCrashedTestCase :: Int -> TestTree
-jobCrashedTestCase _ = 
+jobCrashedTestCase :: TestTree
+jobCrashedTestCase = 
   testCase "job-crashed" $ do
     spc <- startSPC
     ref <- newIORef False
@@ -156,12 +162,12 @@ jobCrashedTestCase _ =
     r2 @?= DoneCrashed
     j3 <- jobAdd spc $ Job (writeIORef ref True) 1
     r3 <- jobWait spc j3
-    r3 @?= DoneByWorker "Catlady"
+    r3 @?= Done
     v <- readIORef ref
     v @?= True
 
-workerRunningStopTestCase :: Int -> TestTree
-workerRunningStopTestCase _ = 
+workerRunningStopTestCase :: TestTree
+workerRunningStopTestCase = 
   testCase "worker-jobbing-stop" $ do
     spc <- startSPC
     ref <- newIORef (0 :: Int)
@@ -180,12 +186,12 @@ workerRunningStopTestCase _ =
         r3 @?= JobPending -- if this is running then the worker is not actually killed
         _ <- workerAdd spc "Manners"
         r4 <- jobWait spc j2
-        r4 @?= DoneByWorker "Manners"
+        r4 @?= Done
         v <- readIORef ref
         v @?= 2
 
-workerNoJobStopTestCase :: Int -> TestTree
-workerNoJobStopTestCase _ = 
+workerNoJobStopTestCase :: TestTree
+workerNoJobStopTestCase = 
   testCase "worker-no-job-stop" $ do
     spc <- startSPC
     ref <- newIORef (0 :: Int)
@@ -197,7 +203,7 @@ workerNoJobStopTestCase _ =
         r1 <- jobStatus spc j1
         r1 @?= JobRunning --both the worker and job are occupied
         r2 <- jobWait spc j1
-        r2 @?= DoneByWorker "Noodles" --both the worker and job are occupied
+        r2 @?= Done --both the worker and job are occupied
         v1 <- readIORef ref
         v1 @?= 1
         _ <- workerStop worker
@@ -206,7 +212,7 @@ workerNoJobStopTestCase _ =
         r3 @?= JobPending -- if this is running then the worker is not actually killed
         _ <- workerAdd spc "Coffee"
         r4 <- jobWait spc j2
-        r4 @?= DoneByWorker "Coffee"
+        r4 @?= Done
         v2 <- readIORef ref
         v2 @?= 2
 

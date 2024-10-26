@@ -79,7 +79,6 @@ data JobDoneReason
     DoneCancelled
   | -- | The job crashed due to an exception.
     DoneCrashed
-  | DoneByWorker WorkerName
   deriving (Eq, Ord, Show)
 
 -- | The status of a job.
@@ -407,7 +406,7 @@ handleMsg c = do
       state <- get
       case lookup jobId $ spcJobsRunning state of 
         Just _ -> do -- TODO double check for workerName is the same?
-          jobDone jobId (DoneByWorker workerName) -- return to the idle pool
+          jobDone jobId Done -- return to the idle pool
           workerIsIdle workerName
           io $ reply rsvp $ ()
           -- state' <- get
