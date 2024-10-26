@@ -127,3 +127,18 @@ eval (Apply e1 e2) = do
       failure NonFunction
 eval (TryCatch e1 e2) =
   eval e1 `catch` eval e2
+
+-- Apply (Lambda "f" (Apply (Var "f") (Var "f")))
+--           (Lambda "f" (Apply (Var "f") (Var "f")))
+
+-- e1 = Lambda "f" (Apply (Var "f") (Var "f"))
+-- e2 = Lambda "f" (Apply (Var "f") (Var "f"))
+
+-- eval (Apply (Lambda "f" (Apply (Var "f") (Var "f"))) (Lambda "f" (Apply (Var "f") (Var "f"))))
+-- v1 = ValFun [] "f" (Apply (Var "f") (Var "f"))
+-- v2 = ValFun [] "f" (Apply (Var "f") (Var "f"))
+
+-- env = ("f", Apply (Var "f") (Var "f")) : []
+-- pure $ eval (Apply (Var "f") (Var "f"))
+-- = pure $ eval (Apply Apply (Var "f") (Var "f") (Var "f"))
+

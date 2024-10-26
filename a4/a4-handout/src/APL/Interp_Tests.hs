@@ -132,7 +132,7 @@ ioTests =
            (out, res) <-
              captureIO [] $
                  runEvalIO $ 
-                  (Free $ TryCatchOp (transaction badPut ) (transaction (evalPrint "doing m2") ) ) >> getState
+                  (Free $ TryCatchOp (transaction badPut) (transaction (evalPrint "doing m2") ) ) >> getState
            (out, res) @?= ([],Right []),
         testCase "Pure-kv-vanilla: kv is a k-ranged operation" $
            let put0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
