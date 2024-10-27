@@ -83,3 +83,53 @@ instance Functor (CCOp chan) where
   fmap f (CCReceive chan c) = CCReceive chan $ f . c
 
 type CC chan a = Free (CCOp chan) a
+
+
+ccNewChan :: CC chan chan
+ccNewChan = Free $ CCNewChan pure
+
+ccFork :: CC chan () -> CC chan ()
+ccFork m = Free $ CCFork m $ pure ()
+
+ccSend :: chan -> Msg -> CC chan ()
+ccSend chan msg = Free $ CCSend chan msg $ pure ()
+
+ccReceive :: chan -> CC chan Msg
+ccReceive chan = Free $ CCReceive chan pure
+
+pipeline :: CC chan String
+pipeline = do
+  chan_0 <- ccNewChan
+  chan_1 <- ccNewChan
+  chan_2 <- ccNewChan
+  chan_3 <- ccNewChan
+  chan_4 <- ccNewChan
+  let passOn tok from to = do
+        x <- ccReceive from
+        ccSend to $ x ++ tok
+  ccFork $ passOn "a" chan_0 chan_1
+  ccFork $ passOn "b" chan_1 chan_2
+  ccFork $ passOn "c" chan_2 chan_3
+  ccFork $ passOn "d" chan_3 chan_4
+  ccSend chan_0 ""
+  ccReceive chan_4
+
+infiniteWrite :: CC chan String
+infiniteWrite = do
+  chan <- ccNewChan
+  ccFork $ forever $ ccSend chan "x"
+  a <- ccReceive chan
+  b <- ccReceive chan
+  pure $ a ++ b
+
+-- limitation of simulating multi thread in Monad:
+-- when interpreting a free monad, 
+-- the only time we can "interrupt" computation and get back control is when an effect occurs, 
+-- so there is no way we can avoid this problem in interpCCPure
+-- =>XXX Haskell does not allow us to inject effects into otherwise pure code. XXX<=
+infiniteLoop :: CC chan String
+infiniteLoop = do
+  chan <- ccNewChan
+  ccFork $ forever $ pure () -- no effect so nothing will go downstream...
+  ccFork $ ccSend chan "x"
+  ccReceive chan

@@ -1,5 +1,6 @@
 module SPC.InterpPure
   (
+    interpCCPure
   )
 where
 
@@ -45,6 +46,7 @@ incCounter = do
   put $ state {ccCounter = ccCounter state + 1}
   pure $ ccCounter state
 
+-- simulation of "forever loop"
 step :: CC Int a -> State CCState (CC ChanId a)
 step (Pure x) = pure $ Pure x
 step (Free (CCNewChan c)) = do
@@ -59,7 +61,7 @@ step (Free (CCFork m c)) = do
 step (Free (CCSend chan_id msg c)) = do
   msgs <- getChan chan_id
   setChan chan_id $ msgs ++ [msg]
-  step c
+  pure c -- simulate block
 
 step (Free (CCReceive chan_id c)) = do
   msgs <- getChan chan_id
@@ -68,3 +70,31 @@ step (Free (CCReceive chan_id c)) = do
     msg : msgs' -> do
       setChan chan_id msgs'
       step $ c msg
+
+-- A correct solution requires is to 
+-- remove the threads from the state before we step them:
+stepThreads :: State CCState ()
+stepThreads = do
+  state <- get
+  put $ state {ccThreads = []}
+  threads <- mapM step $ ccThreads state
+  new_state <- get
+  put $ new_state {ccThreads = threads ++ ccThreads new_state}
+
+interp :: CC ChanId a -> State CCState a
+interp (Pure x) = pure x
+interp (Free op) = do
+  stepThreads
+  op' <- step $ Free op
+  interp op'
+
+interpCCPure :: CC ChanId a -> a
+interpCCPure orig =
+  fst $ runState initial_state $ interp orig
+  where
+    initial_state =
+      CCState
+        { ccCounter = 0,
+          ccChans = [],
+          ccThreads = []
+        }
