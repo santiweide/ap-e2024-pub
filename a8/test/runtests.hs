@@ -1,4 +1,5 @@
-module Main (main) where
+import qualified APL.Interp_Tests
+import Test.Tasty (defaultMain)
 
 main :: IO ()
-main = putStrLn "Test suite not yet implemented."
+main = defaultMain APL.Interp_Tests.tests
