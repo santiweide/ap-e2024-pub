@@ -134,6 +134,20 @@ ioTests =
                  runEvalIO $ 
                   (Free $ TryCatchOp (transaction badPut) (transaction (evalPrint "doing m2") ) ) >> getState
            (out, res) @?= ([],Right []),
+        testCase "IO-trycatch-m1 m2 visible in try catch op" $ do
+           let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+           (out, res) <-
+             captureIO [] $
+                 runEvalIO $ 
+                  (Free $ TryCatchOp (badPut) (evalPrint "doing m2") ) >> getState
+           (out, res) @?= (["doing m2"],Right [(ValInt 0,ValBool False)]),
+        testCase "IO-trycatch-m1 m2 invisible-catch" $ do
+           let badPut  = evalKvPut (ValInt 0) (ValBool False) >> failure "die"
+           (out, res) <-
+             captureIO [] $
+                 runEvalIO $ 
+                  (catch (badPut) (evalPrint "doing m2")) >> getState
+           (out, res) @?= (["doing m2"],Right []),
         testCase "Pure-kv-vanilla: kv is a k-ranged operation" $
            let put0 m = Free $ KvPutOp (ValInt 0) (ValInt 1) m
                put1 m = Free $ KvPutOp (ValInt 1) (ValInt 2) m

@@ -147,7 +147,13 @@ failure :: String -> EvalM a
 failure = Free . ErrorOp
 
 catch :: EvalM a -> EvalM a -> EvalM a
-catch a b = Free $ TryCatchOp a b
+catch a b = do 
+  state <- getState -- stash state
+  Free $ TryCatchOp 
+    a 
+    (do
+      putState state
+      b)
 
 evalKvGet :: Val -> EvalM Val
 evalKvGet key = Free $ KvGetOp key pure
