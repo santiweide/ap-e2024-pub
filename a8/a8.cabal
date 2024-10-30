@@ -25,14 +25,20 @@ library
       , tasty-hunit
       , process
       , directory
+      , megaparsec
+      , QuickCheck
     exposed-modules:
         APL.AST
-        APL.Eval
         APL.InterpPure
         APL.InterpIO
         APL.Interp_Tests
         APL.Monad
         APL.Util
+        APL.Parser
+        APL.Error
+        APL.Eval
+        APL.Check
+        APL.Tests
 
 test-suite a8-test
     import:           common
