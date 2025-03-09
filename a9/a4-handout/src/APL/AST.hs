@@ -24,4 +24,14 @@ data Exp
   | Print String Exp
   | KvPut Exp Exp
   | KvGet Exp
+  -- New expressions for CSV queries
+  | LoadCSV FilePath
+  | SelectColumns [Int] Exp
+  -- | FilterRows (Exp -> Exp) Exp
+  | CartesianProduct Exp Exp
+  | PermuteAndMatch Exp
+  | ExistenceCheck Exp
+  | CopyAndConstant Exp
+  | LeftMerge Exp Exp
   deriving (Eq, Show)
+

@@ -5,6 +5,9 @@ import APL.Util
 import System.Directory (removeFile)
 import System.IO (hFlush, readFile', stdout)
 
+import Data.List (sort)              -- Import `sort` from Data.List
+import Data.List.Split (splitOn)      -- Import `splitOn` from Data.List.Split
+
 -- Converts a string into a value. Only 'ValInt's and 'ValBool' are supported.
 readVal :: String -> Maybe Val
 readVal = unserialize
@@ -114,35 +117,39 @@ runEvalIO evalm = do
           Right _ -> do
             copyDB tempDB dbPath -- update to origin db before exiting the withTempDB
             runEvalIO' r dbPath n
+    -- Handle CSV File Loading
+    runEvalIO' r dbPath (Free (LoadCSVOp filePath k)) = do
+      content <- readFile filePath
+      let rows = map (splitOn ",") (lines content)
+      runEvalIO' r dbPath (k (ValCSV rows))
 
--- modifying the db with reading every time: not a good idea...
--- runEvalIO' r dbPath (Free (TransactionOp m n)) =
---   withTempDB $ \tempDB -> do
---     copyDB dbPath tempDB
---     stateres <- readDB tempDB
---     case stateres of
---       Left err -> pure $ Left err -- should never reach here
---       Right _ -> do
---         res1 <- runEvalIO' r tempDB m
---         case res1 of
---           Left _ -> do
---             runEvalIO' r dbPath n -- nothing happens
---           Right _ -> do
---             stateres2 <- readDB tempDB -- tempDB should be updated, so state updated
---             case stateres2 of
---               Left err -> pure $ Left err -- should never reach here
---               Right _ -> do
---                 copyDB tempDB dbPath -- update to origin db before exiting the withTempDB
---                 runEvalIO' r dbPath n
+    -- Select specific columns from a CSV file
+    runEvalIO' r dbPath (Free (SelectColumnsOp indices (ValCSV rows) k)) =
+      let selectedRows = [ [row !! i | i <- indices, i < length row] | row <- rows ]
+      in runEvalIO' r dbPath (k (ValCSV selectedRows))
 
+    -- Perform Cartesian Product
+    runEvalIO' r dbPath (Free (CartesianProductOp (ValCSV a) (ValCSV b) k)) =
+      let productRows = [x ++ y | x <- a, y <- b]
+      in runEvalIO' r dbPath (k (ValCSV productRows))
 
--- FutureTODO memory cache version(adding in-mem cache operator?)
--- TODO not sure if it is a better solution: 
-  -- implement KvPutOp & KvGetOp with StateGetOp and StatePutOp: 
-      -- runEvalIO' r db (Free (KvPutOp key val m)) = do
-      --   res <- runEvalIO' r db (Free (StateGetOp Pure))
-      --   case res of
-      --     Left err -> return $ Left err
-      --     Right dbState -> do
-      --       let dbState' = (key, val) : filter ((/= key) . fst) dbState
-      --       runEvalIO' r db (Free (StatePutOp dbState' m))
+    -- Permute and Match
+    runEvalIO' r dbPath (Free (PermuteAndMatchOp (ValCSV rows) k)) =
+      let matchedRows = [ [a3, a1] | [a1, a2, a3] <- rows, a1 == a2 ]
+      in runEvalIO' r dbPath (k (ValCSV (sort matchedRows)))
+
+    -- Existence Check
+    runEvalIO' r dbPath (Free (ExistenceCheckOp (ValCSV rows) k)) =
+      let filteredRows = [ [a1, a2] | [a1, a2] <- rows, not (null a2) ]
+      in runEvalIO' r dbPath (k (ValCSV (sort filteredRows)))
+
+    -- Copy and Constant
+    runEvalIO' r dbPath (Free (CopyAndConstantOp (ValCSV rows) k)) =
+      let newRows = [ [a1, "foo", a1] | [a1] <- rows ]
+      in runEvalIO' r dbPath (k (ValCSV (sort newRows)))
+
+    -- Left Merge
+    runEvalIO' r dbPath (Free (LeftMergeOp (ValCSV p) (ValCSV q) k)) =
+      let mergedRows = [ [p1, if null p2 then q2 else p2, if null p3 then q3 else p3, if null p4 then q4 else p4]
+                          | [p1, p2, p3, p4] <- p, [q1, q2, q3, q4] <- q, p1 == q1]
+      in runEvalIO' r dbPath (k (ValCSV (sort mergedRows)))

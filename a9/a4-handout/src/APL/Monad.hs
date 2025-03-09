@@ -32,6 +32,7 @@ data Val
   = ValInt Integer
   | ValBool Bool
   | ValFun Env VName Exp
+  | ValCSV [[String]]  -- New CSV representation
   deriving (Eq, Show)
 
 type Error = String
@@ -102,6 +103,14 @@ data EvalOp a
   | KvGetOp Val (Val -> a)
   | KvPutOp Val Val a
   | TransactionOp (EvalM ()) a
+  -- ** New CSV Operations **
+  | LoadCSVOp FilePath (Val -> a)
+  | SelectColumnsOp [Int] Val (Val -> a)
+  | CartesianProductOp Val Val (Val -> a)
+  | PermuteAndMatchOp Val (Val -> a)
+  | ExistenceCheckOp Val (Val -> a)
+  | CopyAndConstantOp Val (Val -> a)
+  | LeftMergeOp Val Val (Val -> a)
 
 instance Functor EvalOp where
   fmap f (ReadOp k) = ReadOp $ f . k
@@ -113,6 +122,14 @@ instance Functor EvalOp where
   fmap f (KvGetOp key k) = KvGetOp key (f . k)
   fmap f (KvPutOp key val m) = KvPutOp key val (f m)
   fmap f (TransactionOp m a) = TransactionOp m (f a)
+  -- ** CSV Operations **
+  fmap f (LoadCSVOp path k) = LoadCSVOp path (f . k)
+  fmap f (SelectColumnsOp cols val k) = SelectColumnsOp cols val (f . k)
+  fmap f (CartesianProductOp v1 v2 k) = CartesianProductOp v1 v2 (f . k)
+  fmap f (PermuteAndMatchOp v k) = PermuteAndMatchOp v (f . k)
+  fmap f (ExistenceCheckOp v k) = ExistenceCheckOp v (f . k)
+  fmap f (CopyAndConstantOp v k) = CopyAndConstantOp v (f . k)
+  fmap f (LeftMergeOp v1 v2 k) = LeftMergeOp v1 v2 (f . k)
 
 type EvalM a = Free EvalOp a
 

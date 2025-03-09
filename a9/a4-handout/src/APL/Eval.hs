@@ -25,9 +25,33 @@ showVal val = case val of
     (ValInt x) -> show x
     (ValBool x) -> show x
     (ValFun _ _ _) -> "#<func>"  
+    (ValCSV rows) -> unlines (map (unwords . map show) rows) -- Converts CSV to a readable format
+
 
 -- Replace with your 'eval' from your solution to assignment 2. #done#
 eval :: Exp -> EvalM Val
+eval (LoadCSV filePath) = Free $ LoadCSVOp filePath pure  -- Allow CSV operations to proceed
+eval (SelectColumns indices csv) = do
+    csvVal <- eval csv
+    Free $ SelectColumnsOp indices csvVal pure
+eval (CartesianProduct csv1 csv2) = do
+    csvVal1 <- eval csv1
+    csvVal2 <- eval csv2
+    Free $ CartesianProductOp csvVal1 csvVal2 pure
+eval (PermuteAndMatch csv) = do
+    csvVal <- eval csv
+    Free $ PermuteAndMatchOp csvVal pure
+eval (ExistenceCheck csv) = do
+    csvVal <- eval csv
+    Free $ ExistenceCheckOp csvVal pure
+eval (CopyAndConstant csv) = do
+    csvVal <- eval csv
+    Free $ CopyAndConstantOp csvVal pure
+eval (LeftMerge csv1 csv2) = do
+    csvVal1 <- eval csv1
+    csvVal2 <- eval csv2
+    Free $ LeftMergeOp csvVal1 csvVal2 pure
+
 eval (Print str e) = do
     val <- eval e
     evalPrint (str ++ ": " ++ (showVal val))

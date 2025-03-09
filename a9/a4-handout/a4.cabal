@@ -16,6 +16,7 @@ library
       , tasty-hunit
       , process
       , directory
+      , split
     exposed-modules:
         APL.AST
         APL.Eval
